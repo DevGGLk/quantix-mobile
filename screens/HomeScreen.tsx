@@ -141,7 +141,7 @@ export default function HomeScreen() {
         const end = new Date(start);
         end.setDate(end.getDate() + 1);
 
-        const { data, error } = await supabase
+        let query = supabase
           .from('time_entries')
           .select('id, entry_type, clock_in, clock_out')
           .eq('profile_id', currentProfileId)
@@ -149,6 +149,10 @@ export default function HomeScreen() {
           .lt('clock_in', end.toISOString())
           .order('clock_in', { ascending: false })
           .limit(1);
+        if (companyId) {
+          query = query.eq('company_id', companyId);
+        }
+        const { data, error } = await query;
 
         if (error) throw error;
         const last = data?.[0] as { id?: string; entry_type?: string; clock_out?: string | null } | undefined;

@@ -17,10 +17,8 @@
     "android": {
       "package": "com.ggl.quantixhr",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#00C2D1",
+        "foregroundImage": "./assets/adaptive-foreground.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -34,6 +32,12 @@
       "eas": {
         "projectId": "8a31a7bd-2536-4f10-9108-7b75729b9a01"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8a31a7bd-2536-4f10-9108-7b75729b9a01"
     }
   }
 }

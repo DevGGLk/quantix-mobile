@@ -415,10 +415,36 @@ export default function PerfilScreen() {
 
         try {
           if (jobTitleId) {
-            const { data: funcionesData, error: funcionesError } = await supabase
-              .from('job_functions')
-              .select('*')
-              .eq('job_title_id', jobTitleId);
+            let funcionesData: any[] | null = null;
+            let funcionesError: any = null;
+
+            // Hardening: si la tabla soporta scope por empresa, lo aplicamos.
+            if (companyIdRaw) {
+              const scopedRes = await supabase
+                .from('job_functions')
+                .select('*')
+                .eq('job_title_id', jobTitleId)
+                .eq('company_id', companyIdRaw);
+
+              if (!scopedRes.error) {
+                funcionesData = scopedRes.data as any[] | null;
+              } else {
+                // Fallback compatible si la columna company_id no existe en esta tabla.
+                const fallbackRes = await supabase
+                  .from('job_functions')
+                  .select('*')
+                  .eq('job_title_id', jobTitleId);
+                funcionesData = fallbackRes.data as any[] | null;
+                funcionesError = fallbackRes.error;
+              }
+            } else {
+              const fallbackRes = await supabase
+                .from('job_functions')
+                .select('*')
+                .eq('job_title_id', jobTitleId);
+              funcionesData = fallbackRes.data as any[] | null;
+              funcionesError = fallbackRes.error;
+            }
 
             if (funcionesError) {
               console.error('Error en tabla job_functions:', funcionesError);

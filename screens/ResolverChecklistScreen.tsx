@@ -36,6 +36,28 @@ export default function ResolverChecklistScreen() {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const validateChecklistOwnership = async (userId: string, checklistId: string) => {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('company_id')
+      .eq('id', userId)
+      .single();
+    if (profileError) throw profileError;
+
+    const companyId = (profile as { company_id?: string } | null)?.company_id ?? null;
+    if (!companyId) return false;
+
+    const { data: checklistData, error: checklistError } = await supabase
+      .from('checklists')
+      .select('id')
+      .eq('id', checklistId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (checklistError) throw checklistError;
+
+    return Boolean(checklistData);
+  };
+
   useEffect(() => {
     if (!checklist?.id) return;
 
@@ -44,6 +66,23 @@ export default function ResolverChecklistScreen() {
     async function loadItems() {
       try {
         setIsLoadingItems(true);
+
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        const userId = userData.user?.id ?? null;
+        if (!userId) {
+          if (isMounted) setItems([]);
+          return;
+        }
+
+        const canAccess = await validateChecklistOwnership(userId, checklist.id);
+        if (!canAccess) {
+          if (isMounted) {
+            setItems([]);
+            Alert.alert('Acceso denegado', 'Este checklist no pertenece a tu empresa.');
+          }
+          return;
+        }
 
         const { data, error } = await supabase
           .from('checklist_items')
@@ -100,6 +139,12 @@ export default function ResolverChecklistScreen() {
       const employeeId = userData.user?.id ?? null;
       if (!employeeId) {
         Alert.alert('Error', 'No se pudo obtener tu sesión.');
+        return;
+      }
+
+      const canAccess = await validateChecklistOwnership(employeeId, checklist.id);
+      if (!canAccess) {
+        Alert.alert('Acceso denegado', 'Este checklist no pertenece a tu empresa.');
         return;
       }
 
