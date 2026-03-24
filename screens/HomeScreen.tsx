@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,11 @@ import {
 
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import Constants from 'expo-constants';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { haversineDistanceMeters, parseBranchGeo, type BranchGeo } from '../lib/geo';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -29,6 +29,12 @@ Notifications.setNotificationHandler({
 });
 
 const FORCE_SHOW_ADMIN_PANEL = false;
+
+/** Debe coincidir con el esquema / web (time_events). */
+const PAUSE_EVENT_START = 'pause_start';
+const PAUSE_EVENT_END = 'pause_end';
+
+const API_BASE = (process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? '').replace(/\/$/, '');
 
 async function registerForPushNotificationsAsync(userId: string): Promise<void> {
   try {
@@ -47,9 +53,94 @@ async function registerForPushNotificationsAsync(userId: string): Promise<void> 
     const token = (await Notifications.getExpoPushTokenAsync()).data;
     await supabase.from('profiles').update({ push_token: token }).eq('id', userId);
   } catch (e: any) {
-    // No bloqueamos el inicio de sesión, pero dejamos un rastro claro para devs.
     console.warn('Fallo al registrar Push Token:', e?.message ?? String(e));
   }
+}
+
+async function fetchPauseState(timeEntryId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('time_events')
+    .select('*')
+    .eq('time_entry_id', timeEntryId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.warn('time_events (lectura pausa):', error.message);
+    return false;
+  }
+  const row = data?.[0] as Record<string, unknown> | undefined;
+  const last = String(row?.event_type ?? row?.type ?? row?.kind ?? '');
+  return last === PAUSE_EVENT_START;
+}
+
+async function clockInViaBackendApi(
+  latitude: number,
+  longitude: number
+): Promise<{ ok: true; timeEntryId: string } | { ok: false; error: string }> {
+  try {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData?.session?.access_token) {
+      return { ok: false, error: sessionError?.message ?? 'Sin sesión' };
+    }
+    const url = `${API_BASE}/api/time-entries/clock-in`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+      },
+      body: JSON.stringify({ latitude, longitude }),
+    });
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (!res.ok) {
+      const msg =
+        json?.error ??
+        json?.message ??
+        (text?.slice(0, 200) || `HTTP ${res.status}`);
+      return { ok: false, error: String(msg) };
+    }
+    const id =
+      json?.timeEntryId ??
+      json?.time_entry_id ??
+      json?.id ??
+      json?.data?.id ??
+      null;
+    if (!id) {
+      return { ok: false, error: 'Respuesta del servidor sin id de marcaje.' };
+    }
+    return { ok: true, timeEntryId: String(id) };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+}
+
+function assertInsideGeofence(
+  branchGeo: BranchGeo | null,
+  latitude: number,
+  longitude: number
+): { ok: true } | { ok: false; message: string } {
+  if (!branchGeo) {
+    return {
+      ok: false,
+      message:
+        'No hay geocerca configurada para tu sucursal. Contacta a RRHH para asignar sucursal y coordenadas GPS.',
+    };
+  }
+  const d = haversineDistanceMeters(latitude, longitude, branchGeo.lat, branchGeo.lon);
+  if (d > branchGeo.radiusMeters) {
+    return {
+      ok: false,
+      message: `Estás fuera de la zona permitida (${Math.round(d)} m de tu sucursal; máximo ${Math.round(branchGeo.radiusMeters)} m). Acércate a la sucursal para marcar entrada.`,
+    };
+  }
+  return { ok: true };
 }
 
 export default function HomeScreen() {
@@ -58,14 +149,18 @@ export default function HomeScreen() {
   const [isLoadingPerfil, setIsLoadingPerfil] = useState(true);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [branchGeo, setBranchGeo] = useState<BranchGeo | null>(null);
   const [anuncios, setAnuncios] = useState<any[]>([]);
   const [eventos, setEventos] = useState<any[]>([]);
   const [isLoadingHub, setIsLoadingHub] = useState(false);
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [isLoadingClockStatus, setIsLoadingClockStatus] = useState(true);
   const [activeTimeEntryId, setActiveTimeEntryId] = useState<string | null>(null);
+  const [isOnPause, setIsOnPause] = useState(false);
   const [isPunching, setIsPunching] = useState(false);
-  const [homeError, setHomeError] = useState<string | null>(null);
+  const [isPauseActionLoading, setIsPauseActionLoading] = useState(false);
+  /** Solo fallo crítico del perfil (bloquea nombre / empresa). */
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -73,7 +168,7 @@ export default function HomeScreen() {
     async function loadPerfil() {
       setIsLoadingPerfil(true);
       try {
-        setHomeError(null);
+        setProfileLoadError(null);
         const { data: userData, error: userError } = await supabase.auth.getUser();
         if (userError) throw userError;
 
@@ -83,6 +178,7 @@ export default function HomeScreen() {
             setPerfil(null);
             setProfileId(null);
             setCompanyId(null);
+            setBranchGeo(null);
           }
           return;
         }
@@ -91,22 +187,44 @@ export default function HomeScreen() {
 
         const { data, error } = await supabase
           .from('profiles')
-          .select('first_name,last_name,role,company_id')
+          .select('first_name,last_name,role,company_id,primary_branch_id')
           .eq('id', userId)
           .single();
 
         if (error) throw error;
+
+        const cid = (data as any)?.company_id ?? null;
+        const pbid = (data as any)?.primary_branch_id ?? null;
+
+        if (pbid && cid) {
+          const { data: branchRow, error: branchErr } = await supabase
+            .from('branches')
+            .select('*')
+            .eq('id', pbid)
+            .eq('company_id', cid)
+            .maybeSingle();
+          if (branchErr) {
+            console.warn('branches (geocerca):', branchErr.message);
+            if (isMounted) setBranchGeo(null);
+          } else if (isMounted) {
+            setBranchGeo(parseBranchGeo(branchRow as Record<string, unknown>));
+          }
+        } else if (isMounted) {
+          setBranchGeo(null);
+        }
+
         if (isMounted) {
           setPerfil(data ?? null);
-          setCompanyId((data as any)?.company_id ?? null);
+          setCompanyId(cid);
         }
       } catch (_e: any) {
         if (isMounted) {
           setPerfil(null);
           setProfileId(null);
           setCompanyId(null);
-          setHomeError(
-            'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
+          setBranchGeo(null);
+          setProfileLoadError(
+            'No pudimos cargar tu perfil. Revisa tu conexión o intenta más tarde.'
           );
         }
       } finally {
@@ -120,56 +238,95 @@ export default function HomeScreen() {
     };
   }, []);
 
+  const refreshPauseState = useCallback(async (entryId: string | null) => {
+    if (!entryId) {
+      setIsOnPause(false);
+      return;
+    }
+    try {
+      const onBreak = await fetchPauseState(entryId);
+      setIsOnPause(onBreak);
+    } catch {
+      setIsOnPause(false);
+    }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
     async function loadTodayClockStatus() {
       try {
-        setHomeError(null);
         setIsLoadingClockStatus(true);
 
         const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
+        if (userError) {
+          console.warn('clock status auth:', userError.message);
+          if (isMounted) {
+            setIsClockedIn(false);
+            setActiveTimeEntryId(null);
+            setIsOnPause(false);
+          }
+          return;
+        }
         const currentProfileId = profileId ?? userData.user?.id ?? null;
         if (!currentProfileId) {
-          if (isMounted) setIsClockedIn(false);
+          if (isMounted) {
+            setIsClockedIn(false);
+            setActiveTimeEntryId(null);
+            setIsOnPause(false);
+          }
           return;
         }
 
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(start);
-        end.setDate(end.getDate() + 1);
+        if (!companyId) {
+          if (isMounted) {
+            setIsClockedIn(false);
+            setActiveTimeEntryId(null);
+            setIsOnPause(false);
+          }
+          return;
+        }
 
         let query = supabase
           .from('time_entries')
-          .select('id, entry_type, clock_in, clock_out')
+          .select('id, entry_type, clock_in, clock_out, company_id')
           .eq('profile_id', currentProfileId)
-          .gte('clock_in', start.toISOString())
-          .lt('clock_in', end.toISOString())
+          .eq('company_id', companyId)
+          .is('clock_out', null)
           .order('clock_in', { ascending: false })
           .limit(1);
-        if (companyId) {
-          query = query.eq('company_id', companyId);
-        }
+
         const { data, error } = await query;
 
-        if (error) throw error;
-        const last = data?.[0] as { id?: string; entry_type?: string; clock_out?: string | null } | undefined;
-        // Si la última entrada de hoy es de tipo IN y no tiene clock_out, consideramos que está “marcado dentro”.
-        if (isMounted) {
-          const lastType = last?.entry_type;
-          const hasClockOut = Boolean(last?.clock_out);
-          const active = lastType === 'IN' && !hasClockOut && !!last?.id;
-          setIsClockedIn(active);
-          setActiveTimeEntryId(active ? (last!.id as string) : null);
+        if (error) {
+          console.warn('time_entries (estado reloj):', error.message);
+          if (isMounted) {
+            setIsClockedIn(false);
+            setActiveTimeEntryId(null);
+            setIsOnPause(false);
+          }
+          return;
         }
-      } catch (_e: any) {
+
+        const last = data?.[0] as { id?: string; clock_out?: string | null } | undefined;
+        const active = Boolean(last?.id) && !last?.clock_out;
+
+        if (isMounted) {
+          setIsClockedIn(active);
+          const eid = active ? (last!.id as string) : null;
+          setActiveTimeEntryId(eid);
+          if (eid) {
+            await refreshPauseState(eid);
+          } else {
+            setIsOnPause(false);
+          }
+        }
+      } catch (e: any) {
+        console.warn('loadTodayClockStatus:', e?.message ?? e);
         if (isMounted) {
           setIsClockedIn(false);
-          setHomeError(
-            'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
-          );
+          setActiveTimeEntryId(null);
+          setIsOnPause(false);
         }
       } finally {
         if (isMounted) setIsLoadingClockStatus(false);
@@ -180,7 +337,7 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, [profileId]);
+  }, [profileId, companyId, refreshPauseState]);
 
   useEffect(() => {
     let isMounted = true;
@@ -189,7 +346,6 @@ export default function HomeScreen() {
       if (!companyId) return;
 
       try {
-        setHomeError(null);
         setIsLoadingHub(true);
 
         const { data: anunciosData, error: anunciosError } = await supabase
@@ -200,7 +356,12 @@ export default function HomeScreen() {
           .order('created_at', { ascending: false })
           .limit(3);
 
-        if (anunciosError) throw anunciosError;
+        if (anunciosError) {
+          console.warn('company_announcements:', anunciosError.message);
+          if (isMounted) setAnuncios([]);
+        } else if (isMounted) {
+          setAnuncios(anunciosData ?? []);
+        }
 
         const { data: eventosData, error: eventosError } = await supabase
           .from('company_events')
@@ -209,19 +370,17 @@ export default function HomeScreen() {
           .order('event_date', { ascending: true })
           .limit(5);
 
-        if (eventosError) throw eventosError;
-
-        if (isMounted) {
-          setAnuncios(anunciosData ?? []);
+        if (eventosError) {
+          console.warn('company_events:', eventosError.message);
+          if (isMounted) setEventos([]);
+        } else if (isMounted) {
           setEventos(eventosData ?? []);
         }
-      } catch (_e: any) {
+      } catch (e: any) {
+        console.warn('loadHubData:', e?.message ?? e);
         if (isMounted) {
           setAnuncios([]);
           setEventos([]);
-          setHomeError(
-            'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
-          );
         }
       } finally {
         if (isMounted) setIsLoadingHub(false);
@@ -235,23 +394,28 @@ export default function HomeScreen() {
     };
   }, [companyId]);
 
-  const handlePunch = async () => {
-    if (isPunching) return;
+  const getCurrentLocation = async (): Promise<{ lat: number; lon: number } | null> => {
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permiso requerido',
+        'Necesitamos acceso a tu ubicación para registrar tu entrada/salida.'
+      );
+      return null;
+    }
+    const location = await Location.getCurrentPositionAsync({});
+    return {
+      lat: location.coords.latitude,
+      lon: location.coords.longitude,
+    };
+  };
 
+  const handleClockIn = async () => {
+    if (isPunching) return;
     setIsPunching(true);
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permiso requerido',
-          'Necesitamos acceso a tu ubicación para registrar tu entrada/salida.'
-        );
-        return;
-      }
-
-      let location = await Location.getCurrentPositionAsync({});
-      const latitude = location.coords.latitude;
-      const longitude = location.coords.longitude;
+      const coords = await getCurrentLocation();
+      if (!coords) return;
 
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError) {
@@ -266,80 +430,153 @@ export default function HomeScreen() {
       }
 
       if (!companyId) {
-        Alert.alert(
-          'Error de configuración',
-          'No tienes una empresa asignada en tu perfil.'
-        );
+        Alert.alert('Error de configuración', 'No tienes una empresa asignada en tu perfil.');
         return;
       }
-      const nowIso = new Date().toISOString();
-      const punchType = isClockedIn ? 'OUT' : 'IN';
 
-      if (punchType === 'IN') {
-        const payload = {
-          profile_id: currentProfileId,
-          company_id: companyId,
-          entry_type: 'gps_mobile',
-          status: 'in',
-          clock_in: nowIso,
-          telemetry: {
-            source: 'mobile',
-            platform: Platform.OS,
-            gps: { lat: latitude, lon: longitude },
-          },
-        };
-
-        const { data, error: insertError } = await supabase
-          .from('time_entries')
-          .insert(payload)
-          .select('id')
-          .maybeSingle();
-
-        if (insertError) {
-          Alert.alert('Error', insertError.message);
-          return;
-        }
-
-        const newId = (data as { id?: string } | null)?.id ?? null;
-        setIsClockedIn(true);
-        setActiveTimeEntryId(newId);
-        Alert.alert('¡Éxito!', 'Tu entrada ha sido registrada en el sistema.');
-      } else {
-        if (!activeTimeEntryId) {
-          Alert.alert(
-            'Estado inconsistente',
-            'No se encontró un marcaje activo para cerrar. Intenta de nuevo.'
-          );
-          return;
-        }
-
-        const { error: updateError } = await supabase
-          .from('time_entries')
-          .update({
-            clock_out: nowIso,
-            status: 'out',
-            telemetry: {
-              source: 'mobile',
-              platform: Platform.OS,
-              gps: { lat: latitude, lon: longitude },
-            },
-          })
-          .eq('id', activeTimeEntryId);
-
-        if (updateError) {
-          Alert.alert('Error', updateError.message);
-          return;
-        }
-
-        setIsClockedIn(false);
-        setActiveTimeEntryId(null);
-        Alert.alert('¡Éxito!', 'Tu salida ha sido registrada en el sistema.');
+      const geo = assertInsideGeofence(branchGeo, coords.lat, coords.lon);
+      if (!geo.ok) {
+        Alert.alert('Fuera de la zona permitida', geo.message);
+        return;
       }
+
+      const nowIso = new Date().toISOString();
+
+      if (API_BASE) {
+        const apiResult = await clockInViaBackendApi(coords.lat, coords.lon);
+        if (apiResult.ok) {
+          setIsClockedIn(true);
+          setActiveTimeEntryId(apiResult.timeEntryId);
+          setIsOnPause(false);
+          Alert.alert('¡Éxito!', 'Tu entrada ha sido registrada en el sistema.');
+          return;
+        }
+        console.warn('clock-in API fallback a Supabase:', apiResult.error);
+      }
+
+      const payload = {
+        profile_id: currentProfileId,
+        company_id: companyId,
+        entry_type: 'IN',
+        status: 'in',
+        clock_in: nowIso,
+        telemetry: {
+          source: 'mobile',
+          platform: Platform.OS,
+          gps: { lat: coords.lat, lon: coords.lon },
+        },
+      };
+
+      const { data, error: insertError } = await supabase
+        .from('time_entries')
+        .insert(payload)
+        .select('id')
+        .maybeSingle();
+
+      if (insertError) {
+        Alert.alert('Error', insertError.message);
+        return;
+      }
+
+      const newId = (data as { id?: string } | null)?.id ?? null;
+      setIsClockedIn(!!newId);
+      setActiveTimeEntryId(newId);
+      setIsOnPause(false);
+      Alert.alert('¡Éxito!', 'Tu entrada ha sido registrada en el sistema.');
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'No se pudo completar el marcaje. Intenta de nuevo.');
     } finally {
       setIsPunching(false);
+    }
+  };
+
+  const handleClockOut = async () => {
+    if (isPunching) return;
+    setIsPunching(true);
+    try {
+      const coords = await getCurrentLocation();
+      if (!coords) return;
+
+      if (!activeTimeEntryId) {
+        Alert.alert(
+          'Estado inconsistente',
+          'No se encontró un marcaje activo para cerrar. Intenta de nuevo.'
+        );
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+
+      let updateQ = supabase
+        .from('time_entries')
+        .update({
+          clock_out: nowIso,
+          status: 'out',
+          telemetry: {
+            source: 'mobile',
+            platform: Platform.OS,
+            gps: { lat: coords.lat, lon: coords.lon },
+          },
+        })
+        .eq('id', activeTimeEntryId);
+      if (companyId) {
+        updateQ = updateQ.eq('company_id', companyId);
+      }
+      const { error: updateError } = await updateQ;
+
+      if (updateError) {
+        Alert.alert('Error', updateError.message);
+        return;
+      }
+
+      setIsClockedIn(false);
+      setActiveTimeEntryId(null);
+      setIsOnPause(false);
+      Alert.alert('¡Éxito!', 'Tu salida ha sido registrada en el sistema.');
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Error', 'No se pudo completar el marcaje. Intenta de nuevo.');
+    } finally {
+      setIsPunching(false);
+    }
+  };
+
+  const handlePauseToggle = async (action: 'start' | 'end') => {
+    if (isPauseActionLoading || !activeTimeEntryId || !companyId || !profileId) return;
+    setIsPauseActionLoading(true);
+    try {
+      const coords = await getCurrentLocation();
+      if (!coords) return;
+
+      const eventType = action === 'start' ? PAUSE_EVENT_START : PAUSE_EVENT_END;
+      const { error } = await supabase.from('time_events').insert({
+        time_entry_id: activeTimeEntryId,
+        company_id: companyId,
+        profile_id: profileId,
+        event_type: eventType,
+        telemetry: {
+          source: 'mobile',
+          platform: Platform.OS,
+          gps: { lat: coords.lat, lon: coords.lon },
+        },
+      });
+
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
+
+      setIsOnPause(action === 'start');
+      if (action === 'end') {
+        Alert.alert('Pausa finalizada', 'Has vuelto a tu jornada.');
+      } else {
+        Alert.alert('Pausa iniciada', 'Tu pausa quedó registrada.');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'No se pudo registrar la pausa.');
+    } finally {
+      setIsPauseActionLoading(false);
     }
   };
 
@@ -384,9 +621,9 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {homeError && (
+      {profileLoadError && (
         <View style={styles.homeErrorWrap}>
-          <Text style={styles.homeErrorText}>{homeError}</Text>
+          <Text style={styles.homeErrorText}>{profileLoadError}</Text>
         </View>
       )}
 
@@ -396,24 +633,88 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.content}>
-          <TouchableOpacity
-            style={[
-              styles.mainButton,
-              isClockedIn ? styles.mainButtonCheckedIn : styles.mainButtonCheckedOut,
-              isPunching && styles.mainButtonPunching,
-            ]}
-            activeOpacity={0.85}
-            onPress={handlePunch}
-            disabled={isPunching || isLoadingClockStatus || isLoadingPerfil}
-          >
-            {isPunching ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.mainButtonText}>
-                {isClockedIn ? '🛑 Marcar Salida' : '📍 Marcar Entrada'}
-              </Text>
-            )}
-          </TouchableOpacity>
+          {!isClockedIn ? (
+            <TouchableOpacity
+              style={[
+                styles.mainButton,
+                styles.mainButtonCheckedOut,
+                isPunching && styles.mainButtonPunching,
+              ]}
+              activeOpacity={0.85}
+              onPress={handleClockIn}
+              disabled={isPunching || isLoadingClockStatus || isLoadingPerfil}
+            >
+              {isPunching ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.mainButtonText}>📍 Marcar Entrada</Text>
+              )}
+            </TouchableOpacity>
+          ) : isOnPause ? (
+            <View style={styles.clockInColumn}>
+              <TouchableOpacity
+                style={[styles.pauseResumeButton, isPauseActionLoading && styles.btnMuted]}
+                activeOpacity={0.85}
+                onPress={() => handlePauseToggle('end')}
+                disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
+              >
+                {isPauseActionLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.pauseResumeText}>▶️ Regresar de Pausa</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.mainButton,
+                  styles.mainButtonCheckedIn,
+                  (isPunching || isPauseActionLoading) && styles.mainButtonPunching,
+                ]}
+                activeOpacity={0.85}
+                onPress={handleClockOut}
+                disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
+              >
+                {isPunching ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.mainButtonText}>🛑 Marcar Salida</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.clockInColumn}>
+              <View style={styles.rowActions}>
+                <TouchableOpacity
+                  style={[styles.secondaryRound, isPauseActionLoading && styles.btnMuted]}
+                  activeOpacity={0.85}
+                  onPress={() => handlePauseToggle('start')}
+                  disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
+                >
+                  {isPauseActionLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.secondaryRoundText}>⏸{'\n'}Iniciar{'\n'}Pausa</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.mainButton,
+                    styles.mainButtonCheckedIn,
+                    (isPunching || isPauseActionLoading) && styles.mainButtonPunching,
+                  ]}
+                  activeOpacity={0.85}
+                  onPress={handleClockOut}
+                  disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
+                >
+                  {isPunching ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.mainButtonText}>🛑 Marcar Salida</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         <View style={styles.hubSection}>
@@ -570,6 +871,60 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 32,
   },
+  clockInColumn: {
+    alignItems: 'center',
+    width: '100%',
+    gap: 16,
+  },
+  rowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+    flexWrap: 'wrap',
+  },
+  secondaryRound: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: '#f59e0b',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  secondaryRoundText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  pauseResumeButton: {
+    width: '100%',
+    maxWidth: 320,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    backgroundColor: '#d97706',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pauseResumeText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  btnMuted: {
+    opacity: 0.75,
+  },
   mainButton: {
     width: 220,
     height: 220,
@@ -705,4 +1060,3 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
 });
-
