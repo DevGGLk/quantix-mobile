@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type Payslip = {
   period_start: string;
@@ -68,6 +69,7 @@ const watermarkStyles = StyleSheet.create({
 
 export default function PlanillaScreen() {
   const insets = useSafeAreaInsets();
+  const { session, employee } = useAuth();
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
   const [cedulaOId, setCedulaOId] = useState<string>('');
@@ -80,10 +82,7 @@ export default function PlanillaScreen() {
 
     async function loadProfile() {
       try {
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) setCedulaOId('—');
           return;
@@ -91,69 +90,57 @@ export default function PlanillaScreen() {
 
         setCedulaOId(`ID ${userId.slice(-8)}`);
 
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('first_name, last_name, company_id')
-          .eq('id', userId)
-          .single();
+        // Enterprise: nombres y company_id salen de employees
+        if (isMounted) {
+          setNombre(employee?.first_name ?? '');
+          setApellido(employee?.last_name ?? '');
+        }
 
-        if (error) throw error;
+        const companyId = employee?.company_id ?? null;
+        if (!companyId) {
+          setPayslip(null);
+          setHasPayslips(false);
+          return;
+        }
 
-        if (isMounted && data) {
-          const raw = data as {
-            first_name?: string | null;
-            last_name?: string | null;
-            company_id?: string | null;
-          };
-          setNombre(raw.first_name ?? '');
-          setApellido(raw.last_name ?? '');
+        const { data: payslipRow, error: payslipError } = await supabase
+          .from('payroll_slips')
+          .select(
+            'period_start, period_end, gross_income, inss_laboral, ir_retention, applied_deductions, net_to_pay, status'
+          )
+          .eq('profile_id', userId)
+          .eq('company_id', companyId)
+          .order('period_start', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-          const companyId = raw.company_id ?? null;
-          if (!companyId) {
+        if (payslipError) {
+          console.error('Error al cargar recibos (Planilla):', payslipError);
+          if (isMounted) {
             setPayslip(null);
             setHasPayslips(false);
-            return;
+            Alert.alert(
+              'Error de Conexión',
+              'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
+            );
           }
-
-          const { data: payslipRow, error: payslipError } = await supabase
-            .from('payroll_slips')
-            .select(
-              'period_start, period_end, gross_income, inss_laboral, ir_retention, applied_deductions, net_to_pay, status'
-            )
-            .eq('profile_id', userId)
-            .eq('company_id', companyId)
-            .order('period_start', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (payslipError) {
-            console.error('Error al cargar recibos (Planilla):', payslipError);
-            if (isMounted) {
-              setPayslip(null);
-              setHasPayslips(false);
-              Alert.alert(
-                'Error de Conexión',
-                'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
-              );
-            }
-          } else if (isMounted) {
-            if (payslipRow) {
-              const row = payslipRow as any;
-              setPayslip({
-                period_start: String(row.period_start),
-                period_end: String(row.period_end),
-                gross_income: Number(row.gross_income) || 0,
-                inss_laboral: Number(row.inss_laboral) || 0,
-                ir_retention: Number(row.ir_retention) || 0,
-                applied_deductions: Number(row.applied_deductions) || 0,
-                net_to_pay: Number(row.net_to_pay) || 0,
-                status: (row.status as string | null) ?? null,
-              });
-              setHasPayslips(true);
-            } else {
-              setPayslip(null);
-              setHasPayslips(false);
-            }
+        } else if (isMounted) {
+          if (payslipRow) {
+            const row = payslipRow as any;
+            setPayslip({
+              period_start: String(row.period_start),
+              period_end: String(row.period_end),
+              gross_income: Number(row.gross_income) || 0,
+              inss_laboral: Number(row.inss_laboral) || 0,
+              ir_retention: Number(row.ir_retention) || 0,
+              applied_deductions: Number(row.applied_deductions) || 0,
+              net_to_pay: Number(row.net_to_pay) || 0,
+              status: (row.status as string | null) ?? null,
+            });
+            setHasPayslips(true);
+          } else {
+            setPayslip(null);
+            setHasPayslips(false);
           }
         }
       } catch (e) {
@@ -176,7 +163,7 @@ export default function PlanillaScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, employee?.company_id, employee?.first_name, employee?.last_name]);
 
   const displayName = [nombre, apellido].filter(Boolean).join(' ') || 'Empleado';
   const watermarkName = displayName;

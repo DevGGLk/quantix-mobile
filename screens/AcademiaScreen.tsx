@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type Course = {
   id: string;
@@ -21,6 +22,7 @@ type Course = {
 };
 
 export default function AcademiaScreen() {
+  const { session, employee } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [employeeId, setEmployeeId] = useState<string | null>(null);
@@ -35,28 +37,13 @@ export default function AcademiaScreen() {
       try {
         setIsLoading(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) setCourses([]);
           return;
         }
 
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single();
-
-        if (profileError) {
-          console.error('Error en tabla profiles (Academia):', profileError);
-          throw profileError;
-        }
-
-        const profileRecord = profile as any;
-        const companyId = profileRecord?.company_id ?? null;
+        const companyId = employee?.company_id ?? null;
         if (!companyId) {
           if (isMounted) setCourses([]);
           return;
@@ -131,7 +118,7 @@ export default function AcademiaScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, employee?.company_id]);
 
   const handleStartCourse = (course: Course) => {
     Alert.alert('Cargando módulo...', 'El reproductor de video se abrirá pronto');

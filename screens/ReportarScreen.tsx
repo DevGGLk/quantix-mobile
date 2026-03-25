@@ -15,6 +15,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type IncidentType =
   | 'Conducta Inapropiada'
@@ -46,6 +47,7 @@ interface Collaborator {
 
 export default function ReportarScreen() {
   const navigation = useNavigation<any>();
+  const { session, employee } = useAuth();
 
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [isLoadingCollabs, setIsLoadingCollabs] = useState(true);
@@ -67,11 +69,8 @@ export default function ReportarScreen() {
       try {
         setIsLoadingCollabs(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const employeeId = userData.user?.id ?? null;
-        if (!employeeId) {
+        const viewerUserId = session?.user?.id ?? null;
+        if (!viewerUserId) {
           if (isMounted) {
             setCollaborators([]);
             setCurrentEmployeeId(null);
@@ -80,36 +79,59 @@ export default function ReportarScreen() {
           return;
         }
 
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('company_id')
-          .eq('id', employeeId)
-          .single();
-
-        if (profileError) throw profileError;
-
-        const companyId = (profile as any)?.company_id ?? null;
+        const companyId = employee?.company_id ?? null;
         if (!companyId) {
           if (isMounted) {
             setCollaborators([]);
-            setCurrentEmployeeId(employeeId);
+            setCurrentEmployeeId(viewerUserId);
             setCurrentCompanyId(null);
           }
           return;
         }
 
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, first_name, last_name, role, company_id')
+        const { data: empRows, error: empErr } = await supabase
+          .from('employees')
+          .select('user_id, first_name, last_name')
           .eq('company_id', companyId)
-          .neq('id', employeeId);
+          .neq('user_id', viewerUserId);
 
-        if (error) throw error;
+        if (empErr) throw empErr;
+
+        const ids = (empRows ?? [])
+          .map((r: any) => r?.user_id)
+          .filter(Boolean)
+          .map((x: any) => String(x));
+
+        const rolesById = new Map<string, string | null>();
+        if (ids.length) {
+          const { data: profRows, error: profErr } = await supabase
+            .from('profiles')
+            .select('id, role')
+            .in('id', ids);
+          if (!profErr) {
+            for (const r of (profRows ?? []) as any[]) {
+              const id = String(r?.id ?? '');
+              if (id) rolesById.set(id, (r?.role as string | null) ?? null);
+            }
+          } else {
+            console.warn('ReportarScreen roles:', profErr.message);
+          }
+        }
+
+        const list: Collaborator[] = (empRows ?? []).map((r: any) => {
+          const id = String(r?.user_id ?? '');
+          return {
+            id,
+            first_name: (r?.first_name as string | null) ?? null,
+            last_name: (r?.last_name as string | null) ?? null,
+            role: rolesById.get(id) ?? null,
+          };
+        });
 
         if (isMounted) {
-          setCurrentEmployeeId(employeeId);
+          setCurrentEmployeeId(viewerUserId);
           setCurrentCompanyId(companyId);
-          setCollaborators((data as Collaborator[]) ?? []);
+          setCollaborators(list);
         }
       } catch (_e) {
         if (isMounted) {
@@ -129,7 +151,7 @@ export default function ReportarScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, employee?.company_id]);
 
   const handleSubmit = async () => {
     if (isSubmitting) return;

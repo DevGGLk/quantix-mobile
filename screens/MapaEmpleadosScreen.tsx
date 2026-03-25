@@ -4,6 +4,7 @@ import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type Profile = { first_name?: string | null; last_name?: string | null } | null;
 
@@ -59,6 +60,7 @@ function formatClockIn(clockIn: string): string {
 
 export default function MapaEmpleadosScreen() {
   const insets = useSafeAreaInsets();
+  const { session, profile, employee } = useAuth();
   const [employees, setEmployees] = useState<ActiveEmployee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [unauthorized, setUnauthorized] = useState(false);
@@ -71,26 +73,14 @@ export default function MapaEmpleadosScreen() {
         setIsLoading(true);
         setUnauthorized(false);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) setEmployees([]);
           return;
         }
 
-        const { data: viewerProfile, error: profileError } = await supabase
-          .from('profiles')
-          .select('company_id, role')
-          .eq('id', userId)
-          .single();
-        if (profileError || !viewerProfile) {
-          if (isMounted) setEmployees([]);
-          return;
-        }
-
-        const companyId = (viewerProfile as any)?.company_id ?? null;
-        const role = String((viewerProfile as any)?.role ?? '').toLowerCase();
+        const companyId = employee?.company_id ?? null;
+        const role = String(profile?.role ?? '').toLowerCase();
         const allowed = role === 'admin' || role === 'manager' || role === 'superadmin';
         if (!allowed) {
           if (isMounted) {
@@ -107,7 +97,7 @@ export default function MapaEmpleadosScreen() {
         // CRÍTICO: scope estricto por company_id del visor (solo su empresa)
         const { data, error } = await supabase
           .from('time_entries')
-          .select('id, profile_id, clock_in, telemetry, profiles(first_name, last_name)')
+          .select('id, profile_id, clock_in, telemetry')
           .eq('company_id', companyId)
           .is('clock_out', null);
 
@@ -116,12 +106,25 @@ export default function MapaEmpleadosScreen() {
         const rows = (data ?? []) as TimeEntryRow[];
         const list: ActiveEmployee[] = [];
 
+        const ids = rows.map((r) => r.profile_id).filter(Boolean);
+        const { data: empRows } = await supabase
+          .from('employees')
+          .select('user_id, first_name, last_name')
+          .eq('company_id', companyId)
+          .in('user_id', ids);
+        const nameById = new Map<string, string>();
+        for (const r of (empRows ?? []) as any[]) {
+          const id = String(r?.user_id ?? '');
+          const name =
+            [r?.first_name, r?.last_name].filter(Boolean).join(' ') || 'Empleado';
+          if (id) nameById.set(id, name);
+        }
+
         for (const row of rows) {
           const coords = parseCoords(row.telemetry);
           if (!coords) continue;
 
-          const p = row.profiles;
-          const name = [p?.first_name, p?.last_name].filter(Boolean).join(' ') || 'Empleado';
+          const name = nameById.get(row.profile_id) ?? 'Empleado';
 
           list.push({
             id: row.id,
@@ -151,7 +154,7 @@ export default function MapaEmpleadosScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, profile?.role, employee?.company_id]);
 
   if (!isLoading && unauthorized) {
     return (

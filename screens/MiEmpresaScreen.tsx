@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type Company = {
   name: string | null;
@@ -85,6 +86,7 @@ function buildOrgTree(rows: EmployeeRow[]): OrgNode[] {
 }
 
 export default function MiEmpresaScreen() {
+  const { employee } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [company, setCompany] = useState<Company | null>(null);
   const [employeesFlat, setEmployeesFlat] = useState<EmployeeRow[]>([]);
@@ -96,22 +98,7 @@ export default function MiEmpresaScreen() {
       try {
         setIsLoading(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userId = userData.user?.id ?? null;
-        if (!userId) {
-          if (isMounted) setCompany(null);
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('company_id')
-          .eq('id', userId)
-          .single();
-        if (profileError) throw profileError;
-
-        const companyId = (profile as any)?.company_id ?? null;
+        const companyId = employee?.company_id ?? null;
         if (!companyId) {
           if (isMounted) setCompany(null);
           return;
@@ -123,14 +110,22 @@ export default function MiEmpresaScreen() {
             .select('name, logo_url, mission, vision, corporate_values')
             .eq('id', companyId)
             .maybeSingle(),
-          supabase
-            .from('profiles')
-            .select(
-              'id, first_name, last_name, avatar_url, job_title_id, reports_to, manager_id, job_titles(name)'
-            )
-            .eq('company_id', companyId)
-            .eq('is_active', true)
-            .order('last_name', { ascending: true }),
+          (async () => {
+            const full = await supabase
+              .from('employees')
+              .select(
+                'id, first_name, last_name, avatar_url, job_title_id, reports_to, manager_id, job_titles(name)'
+              )
+              .eq('company_id', companyId)
+              .order('last_name', { ascending: true });
+            if (!full.error) return full;
+            const minimal = await supabase
+              .from('employees')
+              .select('id, first_name, last_name, job_title_id')
+              .eq('company_id', companyId)
+              .order('last_name', { ascending: true });
+            return minimal;
+          })(),
         ]);
 
         if (companyRes.error) throw companyRes.error;
@@ -167,7 +162,7 @@ export default function MiEmpresaScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [employee?.company_id]);
 
   const cards = useMemo(() => {
     const mission = normalizeText(company?.mission);

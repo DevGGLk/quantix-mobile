@@ -16,10 +16,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 export default function CrearAnuncioScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { session, profile, employee } = useAuth();
 
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -33,29 +35,17 @@ export default function CrearAnuncioScreen() {
 
     async function checkAuth() {
       try {
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) setAllowed(false);
           return;
         }
 
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('role, company_id')
-          .eq('id', userId)
-          .single();
-        if (profileError || !profile) {
-          if (isMounted) setAllowed(false);
-          return;
-        }
-
-        const r = (profile as { role?: string }).role?.toLowerCase?.();
+        const r = String(profile?.role ?? '').toLowerCase();
         const isAdminOrSuper = r === 'admin' || r === 'superadmin';
         if (isMounted) {
           setAllowed(isAdminOrSuper);
-          setCompanyId((profile as { company_id?: string }).company_id ?? null);
+          setCompanyId(employee?.company_id ?? null);
         }
       } catch (_e) {
         if (isMounted) {
@@ -72,7 +62,7 @@ export default function CrearAnuncioScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, profile?.role, employee?.company_id]);
 
   const handlePublicar = async () => {
     if (!titulo.trim()) {

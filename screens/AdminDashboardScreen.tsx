@@ -14,6 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type SolicitudPendiente = {
   id: string;
@@ -54,6 +55,7 @@ function startOfTodayISO(): string {
 export default function AdminDashboardScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
+  const { session, profile, employee } = useAuth();
 
   const [tardanzasHoy, setTardanzasHoy] = useState(0);
   const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudPendiente[]>([]);
@@ -99,23 +101,14 @@ export default function AdminDashboardScreen() {
       try {
         setLoading(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) return;
 
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('company_id, role, primary_branch_id')
-          .eq('id', userId)
-          .single();
-        if (profileError || !profile) return;
-
-        const companyId = (profile as { company_id?: string }).company_id ?? null;
+        const companyId = employee?.company_id ?? null;
         if (!companyId) return;
 
-        const role = ((profile as { role?: string }).role ?? '').toLowerCase();
-        const primaryBranchId = (profile as { primary_branch_id?: string }).primary_branch_id ?? null;
+        const role = String(profile?.role ?? '').toLowerCase();
+        const primaryBranchId = employee?.branch_id ?? null;
         const isManager = role === 'manager';
         const filterByBranch = isManager && primaryBranchId != null;
 
@@ -212,7 +205,7 @@ export default function AdminDashboardScreen() {
         setTardanzasHoy(tardanzasRes.count ?? 0);
         setSolicitudesPendientes((solicitudesRes.data ?? []) as SolicitudPendiente[]);
         setPermisosPendientesCount(solicitudesRes.count ?? 0);
-        setChecklistsHoy((checklistsRes.data ?? []) as ChecklistHoy[]);
+        setChecklistsHoy((checklistsRes.data ?? []) as unknown as ChecklistHoy[]);
         setHorasExtrasPendientes(horasExtrasRes.count ?? 0);
         setUltimasIncidencias((incidenciasRes.data ?? []) as IncidenciaItem[]);
       } catch (e) {
@@ -238,7 +231,7 @@ export default function AdminDashboardScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, profile?.role, employee?.company_id, employee?.branch_id]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>

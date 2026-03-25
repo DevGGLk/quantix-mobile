@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type ChecklistItem = {
   id: string;
@@ -30,21 +31,15 @@ export default function ResolverChecklistScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<ResolverParams, 'ResolverChecklist'>>();
   const checklist = route.params?.checklist;
+  const { session, employee } = useAuth();
 
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const validateChecklistOwnership = async (userId: string, checklistId: string) => {
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('company_id')
-      .eq('id', userId)
-      .single();
-    if (profileError) throw profileError;
-
-    const companyId = (profile as { company_id?: string } | null)?.company_id ?? null;
+  const validateChecklistOwnership = async (_userId: string, checklistId: string) => {
+    const companyId = employee?.company_id ?? null;
     if (!companyId) return false;
 
     const { data: checklistData, error: checklistError } = await supabase
@@ -67,9 +62,7 @@ export default function ResolverChecklistScreen() {
       try {
         setIsLoadingItems(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) setItems([]);
           return;
@@ -113,7 +106,7 @@ export default function ResolverChecklistScreen() {
     return () => {
       isMounted = false;
     };
-  }, [checklist?.id]);
+  }, [checklist?.id, session?.user?.id, employee?.company_id]);
 
   const toggleItem = (itemId: string) => {
     setCheckedIds((prev) => {
@@ -133,10 +126,7 @@ export default function ResolverChecklistScreen() {
     try {
       setIsSubmitting(true);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-
-      const employeeId = userData.user?.id ?? null;
+      const employeeId = session?.user?.id ?? null;
       if (!employeeId) {
         Alert.alert('Error', 'No se pudo obtener tu sesión.');
         return;

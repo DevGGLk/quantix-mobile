@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type ProfileOption = {
   id: string;
@@ -31,6 +32,7 @@ const TIPOS = [
 export default function ReportarIncidenciaScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { session, profile, employee } = useAuth();
 
   const [role, setRole] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -46,40 +48,33 @@ export default function ReportarIncidenciaScreen() {
 
     async function checkAuth() {
       try {
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) setRole(null);
           return;
         }
 
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('role, company_id')
-          .eq('id', userId)
-          .single();
-        if (profileError || !profile) {
-          if (isMounted) setRole(null);
-          return;
-        }
-
-        const r = (profile as { role?: string }).role?.toLowerCase?.();
+        const r = String(profile?.role ?? '').toLowerCase();
         const allowed = r === 'admin' || r === 'manager' || r === 'superadmin';
         if (!isMounted) return;
         setRole(allowed ? r : null);
-        setCompanyId((profile as { company_id?: string }).company_id ?? null);
+        setCompanyId(employee?.company_id ?? null);
 
         if (!allowed) return;
 
         const { data: empData, error: empError } = await supabase
-          .from('profiles')
-          .select('id, first_name, last_name')
-          .eq('company_id', (profile as { company_id?: string }).company_id)
+          .from('employees')
+          .select('user_id, first_name, last_name')
+          .eq('company_id', employee?.company_id ?? '')
           .order('last_name', { ascending: true });
 
         if (!empError && isMounted) {
-          setEmployees((empData ?? []) as ProfileOption[]);
+          const opts: ProfileOption[] = (empData ?? []).map((r: any) => ({
+            id: String(r?.user_id ?? ''),
+            first_name: (r?.first_name as string | null) ?? null,
+            last_name: (r?.last_name as string | null) ?? null,
+          }));
+          setEmployees(opts);
         }
       } catch (e) {
         if (isMounted) setRole(null);
@@ -92,7 +87,7 @@ export default function ReportarIncidenciaScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, profile?.role, employee?.company_id]);
 
   const handleGuardar = async () => {
     if (!selectedEmployee) {
@@ -111,9 +106,7 @@ export default function ReportarIncidenciaScreen() {
     try {
       setIsSubmitting(true);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      const reportedBy = userData.user?.id ?? null;
+      const reportedBy = session?.user?.id ?? null;
       if (!reportedBy) {
         Alert.alert('Error', 'No se pudo obtener tu sesión.');
         return;

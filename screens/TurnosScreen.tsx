@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type Turno = {
   id: string;
@@ -51,6 +52,7 @@ function mapScheduleStatus(raw?: string | null) {
 export default function TurnosScreen() {
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { session } = useAuth();
 
   useEffect(() => {
     let isMounted = true;
@@ -58,9 +60,7 @@ export default function TurnosScreen() {
     async function load() {
       setIsLoading(true);
       try {
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const profileId = userData.user?.id;
+        const profileId = session?.user?.id ?? null;
 
         if (!profileId) {
           if (isMounted) setTurnos([]);
@@ -127,7 +127,7 @@ export default function TurnosScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id]);
 
   const renderItem = ({ item }: { item: Turno }) => (
     <View style={[styles.card, item.isToday && styles.cardToday]}>

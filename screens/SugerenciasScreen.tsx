@@ -17,6 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 const CATEGORIAS = [
   { id: 'mejora_operativa', label: 'Mejora Operativa' },
@@ -28,6 +29,7 @@ const CATEGORIAS = [
 export default function SugerenciasScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { session, employee } = useAuth();
 
   const [category, setCategory] = useState<string>(CATEGORIAS[0].id);
   const [message, setMessage] = useState('');
@@ -44,22 +46,13 @@ export default function SugerenciasScreen() {
     try {
       setIsSubmitting(true);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-
-      const userId = userData.user?.id ?? null;
+      const userId = session?.user?.id ?? null;
       if (!userId) {
         Alert.alert('Error', 'No se pudo obtener tu sesión.');
         return;
       }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', userId)
-        .single();
-
-      const companyId = (profile as { company_id?: string } | null)?.company_id ?? null;
+      const companyId = employee?.company_id ?? null;
       if (!companyId) {
         Alert.alert('Error', 'No se pudo identificar tu empresa.');
         return;

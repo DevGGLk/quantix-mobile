@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 
 // Paleta VIP Zone alineada al portal web QuantixHR
 const VIP = {
@@ -68,6 +69,7 @@ function formatTransactionDate(iso: string | null | undefined): string {
 }
 
 export default function PerfilScreen() {
+  const { session, profile, employee } = useAuth();
   const navigation = useNavigation<any>();
   const [perfil, setPerfil] = useState<PerfilState>({
     nombre: '',
@@ -110,9 +112,7 @@ export default function PerfilScreen() {
 
       setIsModalLoading(true);
       try {
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) return;
 
         if (selectedBadge === 'trophy') {
@@ -121,63 +121,47 @@ export default function PerfilScreen() {
             return;
           }
 
-          // Intento 1: join directo gamification_balances -> profiles (FK employee_id -> profiles.id)
-          const { data, error } = await supabase
+          // Enterprise: leaderboard por empresa usa employees como fuente de pertenencia y nombre.
+          const { data: topData, error: topErr } = await supabase
             .from('gamification_balances')
-            .select('employee_id, balance, profiles!inner(first_name,last_name,company_id)')
-            .eq('profiles.company_id', companyId)
+            .select('employee_id, balance')
             .order('balance', { ascending: false })
-            .limit(3);
+            .limit(50);
 
-          if (!error && Array.isArray(data)) {
-            const mapped: LeaderboardItem[] = data.map((row: any, idx: number) => {
-              const p = row.profiles ?? {};
-              const name =
-                [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || 'Empleado';
-              return { rank: idx + 1, name, coins: Number(row.balance) || 0 };
-            });
-            if (isMounted) setLeaderboard(mapped);
-            return;
-          }
-
-          // Fallback: traer IDs de profiles por company_id y luego balances en IN
-          const { data: profilesData, error: profilesError } = await supabase
-            .from('profiles')
-            .select('id, first_name, last_name')
-            .eq('company_id', companyId);
-
-          if (profilesError || !Array.isArray(profilesData) || profilesData.length === 0) {
+          if (topErr || !Array.isArray(topData) || topData.length === 0) {
             if (isMounted) setLeaderboard([]);
             return;
           }
 
-          const ids = profilesData.map((p: any) => p.id).filter(Boolean);
-          const { data: balancesData, error: balancesError } = await supabase
-            .from('gamification_balances')
-            .select('employee_id, balance')
-            .in('employee_id', ids)
-            .order('balance', { ascending: false })
-            .limit(3);
+          const ids = topData.map((r: any) => r.employee_id).filter(Boolean);
+          const { data: empRows, error: empErr } = await supabase
+            .from('employees')
+            .select('user_id, first_name, last_name')
+            .eq('company_id', companyId)
+            .in('user_id', ids);
 
-          if (balancesError || !Array.isArray(balancesData)) {
+          if (empErr || !Array.isArray(empRows) || empRows.length === 0) {
             if (isMounted) setLeaderboard([]);
             return;
           }
 
           const nameById = new Map(
-            profilesData.map((p: any) => [
-              p.id,
-              ([p.first_name, p.last_name].filter(Boolean).join(' ').trim() || 'Empleado') as string,
+            empRows.map((e: any) => [
+              e.user_id,
+              ([e.first_name, e.last_name].filter(Boolean).join(' ').trim() || 'Empleado') as string,
             ])
           );
 
-          const mapped: LeaderboardItem[] = balancesData.map((b: any, idx: number) => ({
-            rank: idx + 1,
-            name: nameById.get(b.employee_id) ?? 'Empleado',
-            coins: Number(b.balance) || 0,
-          }));
+          const filtered = topData
+            .filter((b: any) => nameById.has(b.employee_id))
+            .slice(0, 3)
+            .map((b: any, idx: number) => ({
+              rank: idx + 1,
+              name: nameById.get(b.employee_id) ?? 'Empleado',
+              coins: Number(b.balance) || 0,
+            }));
 
-          if (isMounted) setLeaderboard(mapped);
+          if (isMounted) setLeaderboard(filtered);
           return;
         }
 
@@ -310,31 +294,18 @@ export default function PerfilScreen() {
     async function load() {
       setIsLoading(true);
       try {
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userId = userData.user?.id;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) setPerfil({ nombre: '', cargo: '', puntos: 0 });
           return;
         }
 
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('first_name,last_name,role,avatar_url,hire_date,vacation_days_balance,job_title_id,company_id')
-          .eq('id', userId)
-          .single();
-
-        if (error) {
-          if (isMounted) setPerfil({ nombre: '', cargo: '', puntos: 0 });
-          return;
-        }
-
         if (!isMounted) return;
-        const raw = data as Record<string, unknown> | null;
         const nombre =
-          [raw?.first_name, raw?.last_name].filter(Boolean).join(' ').trim() || 'Empleado';
-        const cargo = (raw?.role as string) || 'Colaborador';
-        const companyIdRaw = (raw?.company_id as string | null | undefined) ?? null;
+          [employee?.first_name, employee?.last_name].filter(Boolean).join(' ').trim() ||
+          'Empleado';
+        const cargo = String(profile?.role ?? 'Colaborador') || 'Colaborador';
+        const companyIdRaw = employee?.company_id ?? null;
         if (isMounted) setCompanyId(companyIdRaw);
 
         // Configuración de gamificación (moneda): currency_name + symbol
@@ -367,9 +338,11 @@ export default function PerfilScreen() {
           }
         }
 
-        const hireDateRaw = (raw?.hire_date as string | null) ?? null;
-        const vacationRaw = raw?.vacation_days_balance as number | null | undefined;
-        const jobTitleId = (raw?.job_title_id as string | null) ?? null;
+        // Enterprise: estos campos podrían vivir en employees en el futuro.
+        // De momento, mantenemos defaults seguros si no están disponibles.
+        const hireDateRaw = null;
+        const vacationRaw = null as number | null;
+        const jobTitleId = (employee?.job_title_id as string | null) ?? null;
 
         const vacationParsed =
           typeof vacationRaw === 'number' && Number.isFinite(vacationRaw) ? vacationRaw : 0;
@@ -411,7 +384,9 @@ export default function PerfilScreen() {
         }
 
         setPerfil({ nombre, cargo, puntos });
-        setAvatarUrl((raw?.avatar_url as string) || null);
+        // Enterprise: avatar ya no vive en employees; si sigue existiendo en profiles,
+        // podemos migrarlo más adelante. Por ahora mantenemos null para evitar acoplamiento.
+        setAvatarUrl(null);
 
         try {
           if (jobTitleId) {

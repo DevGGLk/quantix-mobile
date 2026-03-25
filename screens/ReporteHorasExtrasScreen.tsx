@@ -15,10 +15,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 export default function ReporteHorasExtrasScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { session, employee } = useAuth();
 
   const [fecha, setFecha] = useState(() => {
     const d = new Date();
@@ -46,20 +48,13 @@ export default function ReporteHorasExtrasScreen() {
     try {
       setIsSubmitting(true);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      const employeeId = userData.user?.id ?? null;
+      const employeeId = session?.user?.id ?? null;
       if (!employeeId) {
         Alert.alert('Error', 'No se pudo obtener tu sesión.');
         return;
       }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', employeeId)
-        .single();
-      const companyId = (profile as { company_id?: string } | null)?.company_id ?? null;
+      const companyId = employee?.company_id ?? null;
       if (!companyId) {
         Alert.alert('Error', 'No se pudo identificar tu empresa.');
         return;

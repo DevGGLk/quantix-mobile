@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type Chapter = {
   id?: string;
@@ -18,6 +19,7 @@ type Chapter = {
 };
 
 export default function ReglamentoScreen() {
+  const { employee } = useAuth();
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -28,24 +30,7 @@ export default function ReglamentoScreen() {
       try {
         setIsLoading(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const userId = userData.user?.id;
-        if (!userId) {
-          if (isMounted) setChapters([]);
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('company_id')
-          .eq('id', userId)
-          .single();
-
-        if (profileError) throw profileError;
-
-        const companyId = (profile as any)?.company_id ?? null;
+        const companyId = employee?.company_id ?? null;
         if (!companyId) {
           if (isMounted) setChapters([]);
           return;
@@ -86,7 +71,7 @@ export default function ReglamentoScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [employee?.company_id]);
 
   const hasChapters = chapters.length > 0;
 

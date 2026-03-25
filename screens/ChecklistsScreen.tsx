@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type Checklist = {
   id: string;
@@ -26,6 +27,7 @@ export default function ChecklistsScreen() {
   const navigation = useNavigation<any>();
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { employee } = useAuth();
 
   useEffect(() => {
     let isMounted = true;
@@ -34,24 +36,7 @@ export default function ChecklistsScreen() {
       try {
         setIsLoading(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const userId = userData.user?.id ?? null;
-        if (!userId) {
-          if (isMounted) setChecklists([]);
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('company_id')
-          .eq('id', userId)
-          .single();
-
-        if (profileError) throw profileError;
-
-        const companyId = (profile as any)?.company_id ?? null;
+        const companyId = employee?.company_id ?? null;
         if (!companyId) {
           if (isMounted) setChecklists([]);
           return;
@@ -86,7 +71,7 @@ export default function ChecklistsScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [employee?.company_id]);
 
   const hasChecklists = checklists.length > 0;
 
