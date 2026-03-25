@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useOnboardingGate } from '../lib/OnboardingGateContext';
+import { useAuth } from '../lib/AuthContext';
 import { runOnboardingCompletion } from '../lib/onboardingComplete';
 
 const DEFAULT_MISSION =
@@ -71,6 +72,7 @@ function formatJobFunctionRow(row: Record<string, unknown>) {
 
 export default function OnboardingScreen() {
   const { releaseToMainApp } = useOnboardingGate();
+  const { session, employee } = useAuth();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
@@ -86,27 +88,16 @@ export default function OnboardingScreen() {
   const loadProfileAndCompany = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: userData, error: authErr } = await supabase.auth.getUser();
-      if (authErr || !userData.user?.id) {
+      const uid = session?.user?.id ?? null;
+      if (!uid) {
         Alert.alert('Sesión', 'No se pudo obtener tu sesión.');
         return;
       }
-      const uid = userData.user.id;
       setUserId(uid);
 
-      const { data: profile, error: pErr } = await supabase
-        .from('profiles')
-        .select('company_id, job_title_id')
-        .eq('id', uid)
-        .single();
-
-      if (pErr || !profile) {
-        console.warn('Onboarding perfil:', pErr?.message);
-        return;
-      }
-
-      const cid = (profile as { company_id?: string | null }).company_id ?? null;
-      const jtid = (profile as { job_title_id?: string | null }).job_title_id ?? null;
+      // Enterprise: se toma desde employees (no desde profiles).
+      const cid = employee?.company_id ?? null;
+      const jtid = employee?.job_title_id ?? null;
       setCompanyId(cid);
       setJobTitleId(jtid);
 
@@ -132,7 +123,7 @@ export default function OnboardingScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [session?.user?.id, employee?.company_id, employee?.job_title_id]);
 
   useEffect(() => {
     loadProfileAndCompany();

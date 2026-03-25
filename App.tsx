@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect, useCallback, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import type { Session } from '@supabase/supabase-js';
 
-import { supabase } from './lib/supabase';
 import { theme } from './lib/theme';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
 import OnboardingScreen from './screens/OnboardingScreen';
+import { AuthProvider, useAuth } from './lib/AuthContext';
+import { supabase } from './lib/supabase';
 import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import ServiciosScreen from './screens/ServiciosScreen';
@@ -103,9 +103,8 @@ function MainTabs() {
   );
 }
 
-export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [isSessionLoading, setIsSessionLoading] = useState(true);
+function AppInner() {
+  const { session, isLoading, profile, employee } = useAuth();
   const [onboardingGate, setOnboardingGate] = useState<OnboardingGateState>('loading');
 
   const releaseToMainApp = useCallback(() => {
@@ -118,30 +117,6 @@ export default function App() {
   );
 
   useEffect(() => {
-    let isMounted = true;
-    supabase.auth
-      .getSession()
-      .then(({ data: { session: current } }) => {
-        if (!isMounted) return;
-        setSession(current ?? null);
-      })
-      .finally(() => {
-        if (!isMounted) return;
-        setIsSessionLoading(false);
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
 
     async function evaluateOnboardingGate() {
@@ -152,30 +127,16 @@ export default function App() {
 
       setOnboardingGate('loading');
 
+      // Enterprise: el company_id operativo vive en employees.
+      // Si no hay employee record (p.ej. SuperAdmin), no bloqueamos.
+      const companyId = employee?.company_id ?? null;
+      const onboardingCompleted = Boolean(profile?.onboarding_completed);
+      if (!companyId) {
+        if (!cancelled) setOnboardingGate('app');
+        return;
+      }
+
       try {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('onboarding_completed, company_id')
-          .eq('id', session.user.id)
-          .maybeSingle();
-
-        if (cancelled) return;
-
-        if (profileError || !profile) {
-          setOnboardingGate('app');
-          return;
-        }
-
-        const companyId = (profile as { company_id?: string | null }).company_id ?? null;
-        const onboardingCompleted = Boolean(
-          (profile as { onboarding_completed?: boolean | null }).onboarding_completed
-        );
-
-        if (!companyId) {
-          setOnboardingGate('app');
-          return;
-        }
-
         const { data: company, error: companyError } = await supabase
           .from('companies')
           .select('is_onboarding_enabled')
@@ -207,9 +168,9 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, employee?.company_id, profile?.onboarding_completed]);
 
-  if (isSessionLoading) {
+  if (isLoading) {
     return (
       <SafeAreaProvider>
         <View style={authLoadingStyles.container}>
@@ -343,6 +304,14 @@ export default function App() {
         </NavigationContainer>
       </OnboardingGateContext.Provider>
     </SafeAreaProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
   );
 }
 

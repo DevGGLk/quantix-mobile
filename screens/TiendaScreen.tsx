@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 
 // Paleta VIP Zone alineada al portal web QuantixHR (Perfil + Recompensas)
 const VIP = {
@@ -36,6 +37,7 @@ type Reward = {
 };
 
 export default function TiendaScreen() {
+  const { session, employee } = useAuth();
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [employeeDisplayName, setEmployeeDisplayName] = useState<string>('');
@@ -53,10 +55,7 @@ export default function TiendaScreen() {
       try {
         setIsLoading(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const userId = userData.user?.id ?? null;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) {
             setCompanyId(null);
@@ -67,22 +66,7 @@ export default function TiendaScreen() {
           return;
         }
 
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .maybeSingle();
-
-        if (profileError) {
-          console.error('Error en tabla profiles (Tienda):', profileError);
-          Alert.alert(
-            'Error de Conexión',
-            'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
-          );
-        }
-
-        const profileRecord = profile as any;
-        const newCompanyId = (profileRecord?.company_id as string) ?? null;
+        const newCompanyId = employee?.company_id ?? null;
 
         let newCoins = 0;
         try {
@@ -159,10 +143,9 @@ export default function TiendaScreen() {
           throw rewardsError;
         }
 
-        const displayName = [profileRecord?.first_name, profileRecord?.last_name]
-          .filter(Boolean)
-          .join(' ')
-          .trim() || 'Empleado';
+        const displayName =
+          [employee?.first_name, employee?.last_name].filter(Boolean).join(' ').trim() ||
+          'Empleado';
 
         if (isMounted) {
           setCompanyId(newCompanyId);

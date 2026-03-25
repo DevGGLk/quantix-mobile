@@ -15,6 +15,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type LeaveType = 'Vacaciones' | 'Permiso por Enfermedad' | 'Asunto Personal';
 
@@ -31,6 +32,7 @@ function mapLeaveTypeToRequestType(type: LeaveType): 'vacation' | 'permission' |
 }
 
 export default function NuevaSolicitudScreen() {
+  const { session, employee } = useAuth();
   const navigation = useNavigation<any>();
 
   const [selectedType, setSelectedType] = useState<LeaveType>('Vacaciones');
@@ -83,28 +85,17 @@ export default function NuevaSolicitudScreen() {
     try {
       setIsSubmitting(true);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-
-      const userId = userData.user?.id;
+      const userId = session?.user?.id ?? null;
       if (!userId) {
         Alert.alert('Sesión inválida', 'No se pudo obtener la sesión del usuario.');
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', userId)
-        .single();
-
-      if (profileError) throw profileError;
-
-      const companyId = (profile as any)?.company_id ?? null;
+      const companyId = employee?.company_id ?? null;
       if (!companyId) {
         Alert.alert(
           'Perfil incompleto',
-          'No se encontró una empresa asociada a tu perfil. Contacta a RRHH.'
+          'No se encontró una empresa asociada a tu expediente de empleado. Contacta a RRHH.'
         );
         return;
       }

@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type CompanySettings = {
   company_id: string;
@@ -16,33 +17,14 @@ type CompanySettings = {
 export default function ServiciosScreen() {
   const navigation = useNavigation<any>();
   const [companySettings, setCompanySettings] = useState<CompanySettings>(null);
+  const { employee } = useAuth();
 
   useEffect(() => {
     let isMounted = true;
 
     async function load() {
       try {
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const userId = userData.user?.id ?? null;
-        if (!userId) {
-          if (isMounted) setCompanySettings(null);
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('company_id')
-          .eq('id', userId)
-          .single();
-
-        if (profileError || !profile) {
-          if (isMounted) setCompanySettings(null);
-          return;
-        }
-
-        const companyId = (profile as { company_id?: string }).company_id ?? null;
+        const companyId = employee?.company_id ?? null;
         if (!companyId) {
           if (isMounted) setCompanySettings(null);
           return;
@@ -75,7 +57,7 @@ export default function ServiciosScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [employee?.company_id]);
 
   return (
     <View style={styles.container}>

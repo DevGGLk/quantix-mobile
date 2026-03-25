@@ -17,6 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { haversineDistanceMeters, parseBranchGeo, type BranchGeo } from '../lib/geo';
+import { useAuth } from '../lib/AuthContext';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -145,6 +146,7 @@ function assertInsideGeofence(
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
+  const { session, profile: authProfile, employee, refresh: refreshAuth } = useAuth();
   const [perfil, setPerfil] = useState<any>(null);
   const [isLoadingPerfil, setIsLoadingPerfil] = useState(true);
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -169,10 +171,7 @@ export default function HomeScreen() {
       setIsLoadingPerfil(true);
       try {
         setProfileLoadError(null);
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const userId = userData.user?.id;
+        const userId = session?.user?.id ?? null;
         if (!userId) {
           if (isMounted) {
             setPerfil(null);
@@ -185,22 +184,17 @@ export default function HomeScreen() {
         if (isMounted) setProfileId(userId);
         registerForPushNotificationsAsync(userId);
 
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('first_name,last_name,role,company_id,primary_branch_id')
-          .eq('id', userId)
-          .single();
+        // Refrescamos en background por si venimos de login y aún no está en memoria.
+        void refreshAuth();
 
-        if (error) throw error;
+        const cid = employee?.company_id ?? null;
+        const bid = employee?.branch_id ?? null;
 
-        const cid = (data as any)?.company_id ?? null;
-        const pbid = (data as any)?.primary_branch_id ?? null;
-
-        if (pbid && cid) {
+        if (bid && cid) {
           const { data: branchRow, error: branchErr } = await supabase
             .from('branches')
             .select('*')
-            .eq('id', pbid)
+            .eq('id', bid)
             .eq('company_id', cid)
             .maybeSingle();
           if (branchErr) {
@@ -214,7 +208,12 @@ export default function HomeScreen() {
         }
 
         if (isMounted) {
-          setPerfil(data ?? null);
+          // UI: usamos employees para nombres y profiles para role.
+          setPerfil({
+            first_name: employee?.first_name ?? null,
+            last_name: employee?.last_name ?? null,
+            role: authProfile?.role ?? null,
+          });
           setCompanyId(cid);
         }
       } catch (_e: any) {
@@ -236,7 +235,7 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, employee?.company_id, employee?.branch_id, employee?.first_name, employee?.last_name, authProfile?.role, refreshAuth]);
 
   const refreshPauseState = useCallback(async (entryId: string | null) => {
     if (!entryId) {
@@ -457,6 +456,7 @@ export default function HomeScreen() {
       const payload = {
         profile_id: currentProfileId,
         company_id: companyId,
+        branch_id: employee?.branch_id ?? null,
         entry_type: 'IN',
         status: 'in',
         clock_in: nowIso,
