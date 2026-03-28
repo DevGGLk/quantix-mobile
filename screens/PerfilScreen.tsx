@@ -21,6 +21,7 @@ import { supabase } from '../lib/supabase';
 import { checklistGivesPoints, checklistPointsFromRow } from '../lib/checklistReward';
 import { useAuth } from '../lib/AuthContext';
 import type { GamificationBalanceRow, GamificationSettingsRow } from '../lib/gamificationRows';
+import { BadgeCatalogueIcon } from '../utils/badgeIcons';
 
 type LeaderboardBalanceRow = {
   employee_id?: string | null;
@@ -33,10 +34,18 @@ type EmployeeNameRow = {
   last_name?: string | null;
 };
 
-type BadgeRow = {
-  id?: string | null;
-  badge_name?: string | null;
+type BadgeCatalogueEmbed = {
+  name?: string | null;
+  description?: string | null;
   icon_name?: string | null;
+  icon_color?: string | null;
+};
+
+type EmployeeBadgeRow = {
+  id?: string | null;
+  badge_id?: string | null;
+  employee_id?: string | null;
+  badge_catalogue?: BadgeCatalogueEmbed | BadgeCatalogueEmbed[] | null;
 };
 
 type BoostRow = {
@@ -67,7 +76,13 @@ type BadgeModalType = 'star' | 'trophy' | 'ribbon' | 'rocket' | null;
 
 type LeaderboardItem = { rank: number; name: string; coins: number };
 type MissionItem = { id: string; title: string; pts: number; completed: boolean };
-type InsigniaItem = { id: string; name: string; icon: string };
+type InsigniaItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  iconKey: string;
+  iconColor: string | null;
+};
 type BoostItem = { id: string; title: string; description: string | null };
 
 type PerfilState = {
@@ -236,18 +251,30 @@ export default function PerfilScreen() {
           }
           const { data, error } = await supabase
             .from('employee_badges')
-            .select('id, badge_name, icon_name')
+            .select('*, badge_catalogue(name, description, icon_name, icon_color)')
             .eq('employee_id', empId)
             .order('created_at', { ascending: false });
 
           if (error) throw error;
 
           const mapped: InsigniaItem[] = Array.isArray(data)
-            ? (data as BadgeRow[]).map((b) => ({
-                id: String(b.id ?? ''),
-                name: String(b.badge_name ?? 'Insignia'),
-                icon: String(b.icon_name ?? 'star'),
-              }))
+            ? (data as EmployeeBadgeRow[]).map((b) => {
+                const raw = b.badge_catalogue;
+                const cat = Array.isArray(raw) ? raw[0] : raw;
+                return {
+                  id: String(b.id ?? ''),
+                  name: String(cat?.name ?? 'Insignia'),
+                  description:
+                    typeof cat?.description === 'string' && cat.description.trim()
+                      ? cat.description.trim()
+                      : null,
+                  iconKey: String(cat?.icon_name ?? 'star'),
+                  iconColor:
+                    typeof cat?.icon_color === 'string' && cat.icon_color.trim()
+                      ? cat.icon_color.trim()
+                      : null,
+                };
+              })
             : [];
 
           if (isMounted) setInsignias(mapped);
@@ -722,13 +749,20 @@ export default function PerfilScreen() {
                       insignias.map((ins) => (
                         <View key={ins.id} style={styles.insigniaItem}>
                           <View style={styles.insigniaIconWrap}>
-                            <Ionicons
-                              name={(ins.icon as keyof typeof Ionicons.glyphMap) ?? 'star'}
+                            <BadgeCatalogueIcon
+                              iconName={ins.iconKey}
+                              color={ins.iconColor ?? VIP.purpleDeep}
                               size={28}
-                              color={VIP.purpleDeep}
                             />
                           </View>
-                          <Text style={styles.insigniaName} numberOfLines={2}>{ins.name}</Text>
+                          <Text style={styles.insigniaName} numberOfLines={2}>
+                            {ins.name}
+                          </Text>
+                          {ins.description ? (
+                            <Text style={styles.insigniaDesc} numberOfLines={2}>
+                              {ins.description}
+                            </Text>
+                          ) : null}
                         </View>
                       ))
                     )}
@@ -1385,6 +1419,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: VIP.textOnLight,
     textAlign: 'center',
+  },
+  insigniaDesc: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: VIP.textMuted,
+    textAlign: 'center',
+    marginTop: 4,
   },
   boostCard: {
     backgroundColor: VIP.cardLavender,

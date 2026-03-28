@@ -29,6 +29,25 @@ export type Database = {
           salary: number | null;
         };
       };
+      badge_catalogue: {
+        Row: {
+          id: string;
+          name: string;
+          description: string | null;
+          criteria: string | null;
+          reward_points: number | null;
+          icon_name: string | null;
+          icon_color: string | null;
+        };
+      };
+      employee_badges: {
+        Row: {
+          id: string;
+          badge_id: string;
+          employee_id: string;
+          created_at: string | null;
+        };
+      };
       // (El resto de tablas se tipan bajo demanda)
     };
   };
