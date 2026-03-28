@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import type { TabCompositeNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
@@ -15,7 +16,7 @@ type CompanySettings = {
 } | null;
 
 export default function ServiciosScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<TabCompositeNavigation<'Servicios'>>();
   const [companySettings, setCompanySettings] = useState<CompanySettings>(null);
   const { employee } = useAuth();
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,14 +7,19 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type ExtraHoursRecord = {
   id: string;
   record_date: string;
+  hours_reported?: number | null;
   hours_performed?: number | null;
   hours_worked?: number | null;
   hours_realizadas?: number | null;
@@ -57,7 +62,11 @@ function getStatusLabel(status: string | null | undefined): string {
 
 function RecordCard({ item }: { item: ExtraHoursRecord }) {
   const realizadas =
-    item.hours_performed ?? item.hours_worked ?? item.hours_realizadas ?? 0;
+    item.hours_reported ??
+    item.hours_performed ??
+    item.hours_worked ??
+    item.hours_realizadas ??
+    0;
   const autorizadas =
     item.hours_approved ?? item.horas_autorizadas ?? 0;
   const status = item.status ?? 'pending';
@@ -88,8 +97,14 @@ function RecordCard({ item }: { item: ExtraHoursRecord }) {
 
 export default function HorasExtrasScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<RootStackNavigation>();
+  const { employee } = useAuth();
   const [records, setRecords] = useState<ExtraHoursRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  const goToReporte = useCallback(() => {
+    navigation.navigate('ReporteHorasExtras');
+  }, [navigation]);
 
   useEffect(() => {
     let isMounted = true;
@@ -98,11 +113,8 @@ export default function HorasExtrasScreen() {
       try {
         setIsLoading(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        const employeeId = userData.user?.id ?? null;
-        if (!employeeId) {
+        const employeeRowId = employee?.id ?? null;
+        if (!employeeRowId) {
           if (isMounted) setRecords([]);
           return;
         }
@@ -110,7 +122,7 @@ export default function HorasExtrasScreen() {
         const { data, error } = await supabase
           .from('extra_hours_records')
           .select('*')
-          .eq('employee_id', employeeId)
+          .eq('employee_id', employeeRowId)
           .order('record_date', { ascending: false });
 
         if (error) throw error;
@@ -136,7 +148,7 @@ export default function HorasExtrasScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [employee?.id]);
 
   const isEmpty = !isLoading && records.length === 0;
 
@@ -152,8 +164,18 @@ export default function HorasExtrasScreen() {
       {!isLoading && isEmpty && (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>
-            No tienes horas extras registradas este mes.
+            No tienes horas extras registradas aún. Si realizaste horas adicionales, envía un
+            reporte para que RRHH las registre.
           </Text>
+          <TouchableOpacity
+            style={styles.primaryCta}
+            onPress={goToReporte}
+            activeOpacity={0.88}
+            accessibilityRole="button"
+            accessibilityLabel="Ir a reportar horas extras"
+          >
+            <Text style={styles.primaryCtaText}>Reportar horas extras</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -164,6 +186,17 @@ export default function HorasExtrasScreen() {
           renderItem={({ item }) => <RecordCard item={item} />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          ListFooterComponent={
+            <TouchableOpacity
+              style={styles.footerCta}
+              onPress={goToReporte}
+              activeOpacity={0.88}
+              accessibilityRole="button"
+              accessibilityLabel="Registrar nuevas horas extras"
+            >
+              <Text style={styles.footerCtaText}>+ Registrar nuevas horas extras</Text>
+            </TouchableOpacity>
+          }
         />
       )}
     </View>
@@ -195,6 +228,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: theme.textSecondary,
     textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  primaryCta: {
+    backgroundColor: theme.accent,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignSelf: 'stretch',
+    marginHorizontal: 8,
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.accent,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 6,
+      },
+      android: { elevation: 3 },
+    }),
+  },
+  primaryCtaText: {
+    color: theme.backgroundAlt,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  footerCta: {
+    marginTop: 8,
+    marginBottom: 24,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  footerCtaText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.accent,
   },
   listContent: {
     paddingHorizontal: 24,

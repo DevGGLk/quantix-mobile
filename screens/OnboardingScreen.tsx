@@ -18,14 +18,12 @@ import { theme } from '../lib/theme';
 import { useOnboardingGate } from '../lib/OnboardingGateContext';
 import { useAuth } from '../lib/AuthContext';
 import { runOnboardingCompletion } from '../lib/onboardingComplete';
-
-const DEFAULT_MISSION =
-  'En QuantixHR creemos en el talento humano, la transparencia y el crecimiento compartido. ' +
-  'Nuestra cultura se basa en el respeto, la colaboración y la mejora continua.';
-
-const DEFAULT_RULEBOOK =
-  'El reglamento interno completo está disponible a través de tu gerente y RRHH. ' +
-  'Al aceptar, confirmas que te comprometes a conocerlo y cumplirlo.';
+import {
+  ONBOARDING_FALLBACK_MISSION_CULTURE,
+  ONBOARDING_FALLBACK_RULEBOOK,
+  ONBOARDING_POLICIES_FETCH_FAILED_BODY,
+  ONBOARDING_POLICIES_FETCH_FAILED_TITLE,
+} from '../lib/onboardingFallbackCopy';
 
 const STEPS = 4;
 
@@ -44,20 +42,46 @@ function dotLabel(step: number) {
   }
 }
 
-function asDisplayText(value: unknown, fallback: string): string {
-  if (value == null) return fallback;
-  if (typeof value === 'string') {
-    const t = value.trim();
-    return t.length ? t : fallback;
-  }
+function normalizeCorpText(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
   if (typeof value === 'object') {
     try {
-      return JSON.stringify(value, null, 2);
+      return JSON.stringify(value, null, 2).trim();
     } catch {
-      return fallback;
+      return '';
     }
   }
-  return String(value);
+  return String(value).trim();
+}
+
+/** Mismos campos que Mi Empresa (`companies`). */
+function buildMissionCultureBlock(row: Record<string, unknown> | null | undefined): string {
+  if (!row) return '';
+  const m = normalizeCorpText(row.mission);
+  const v = normalizeCorpText(row.vision);
+  const cv = normalizeCorpText(row.corporate_values);
+  const parts: string[] = [];
+  if (m) parts.push(`Misión\n\n${m}`);
+  if (v) parts.push(`Visión\n\n${v}`);
+  if (cv) parts.push(`Valores corporativos\n\n${cv}`);
+  return parts.join('\n\n');
+}
+
+/** Mismo origen que la pantalla Reglamento: `company_policies`. */
+function buildPoliciesPlaintext(
+  rows: { title?: unknown; content?: unknown }[] | null | undefined
+): string {
+  if (!Array.isArray(rows) || rows.length === 0) return '';
+  return rows
+    .map((p) => {
+      const t = normalizeCorpText(p.title);
+      const body = normalizeCorpText(p.content);
+      if (!t && !body) return '';
+      return t ? `${t}\n\n${body}` : body;
+    })
+    .filter(Boolean)
+    .join('\n\n———\n\n');
 }
 
 function formatJobFunctionRow(row: Record<string, unknown>) {
@@ -80,6 +104,8 @@ export default function OnboardingScreen() {
   const [jobTitleId, setJobTitleId] = useState<string | null>(null);
   const [missionVision, setMissionVision] = useState('');
   const [rulebook, setRulebook] = useState('');
+  /** `company_policies` respondió con error (red/RLS); distinto de “no hay filas”. */
+  const [policiesLoadError, setPoliciesLoadError] = useState<string | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [jobFunctions, setJobFunctions] = useState<Record<string, unknown>[]>([]);
   const [loadingFunctions, setLoadingFunctions] = useState(false);
@@ -102,23 +128,46 @@ export default function OnboardingScreen() {
       setJobTitleId(jtid);
 
       if (cid) {
-        const { data: company, error: cErr } = await supabase
-          .from('companies')
-          .select('mission_vision, rulebook')
-          .eq('id', cid)
-          .maybeSingle();
+        const [companyRes, policiesRes] = await Promise.all([
+          supabase
+            .from('companies')
+            .select('mission, vision, corporate_values')
+            .eq('id', cid)
+            .maybeSingle(),
+          supabase
+            .from('company_policies')
+            .select('title, content, order_index')
+            .eq('company_id', cid)
+            .order('order_index', { ascending: true }),
+        ]);
 
-        if (cErr) {
-          console.warn('Onboarding company:', cErr.message);
+        if (companyRes.error) {
+          console.warn('Onboarding company:', companyRes.error.message);
+          setPoliciesLoadError(null);
+          setMissionVision(ONBOARDING_FALLBACK_MISSION_CULTURE);
+          setRulebook(ONBOARDING_FALLBACK_RULEBOOK);
         } else {
-          const mv = (company as { mission_vision?: unknown })?.mission_vision;
-          const rb = (company as { rulebook?: unknown })?.rulebook;
-          setMissionVision(asDisplayText(mv, DEFAULT_MISSION));
-          setRulebook(asDisplayText(rb, DEFAULT_RULEBOOK));
+          const cRow = (companyRes.data ?? null) as Record<string, unknown> | null;
+          const culture = buildMissionCultureBlock(cRow);
+          setMissionVision(culture.trim() ? culture : ONBOARDING_FALLBACK_MISSION_CULTURE);
+
+          if (policiesRes.error) {
+            console.warn('Onboarding company_policies:', policiesRes.error.message);
+            setPoliciesLoadError(ONBOARDING_POLICIES_FETCH_FAILED_TITLE);
+            setRulebook('');
+            setTermsAccepted(false);
+          } else {
+            setPoliciesLoadError(null);
+            const ruleText = buildPoliciesPlaintext(
+              policiesRes.data as { title?: unknown; content?: unknown }[] | null
+            );
+            setRulebook(ruleText.trim() ? ruleText : ONBOARDING_FALLBACK_RULEBOOK);
+          }
         }
       } else {
-        setMissionVision(DEFAULT_MISSION);
-        setRulebook(DEFAULT_RULEBOOK);
+        setPoliciesLoadError(null);
+        setMissionVision(ONBOARDING_FALLBACK_MISSION_CULTURE);
+        setRulebook(ONBOARDING_FALLBACK_RULEBOOK);
       }
     } finally {
       setLoading(false);
@@ -166,6 +215,10 @@ export default function OnboardingScreen() {
 
         if (err && !rows?.length) {
           console.warn('job_functions onboarding:', err.message);
+          Alert.alert(
+            'Error de Conexión',
+            'No pudimos cargar las funciones del puesto. Revisa tu conexión o intenta de nuevo más tarde.'
+          );
         }
         if (!cancelled) setJobFunctions(rows ?? []);
       } catch (e) {
@@ -182,6 +235,13 @@ export default function OnboardingScreen() {
   }, [step, jobTitleId, companyId]);
 
   const goNext = () => {
+    if (step === 1 && policiesLoadError) {
+      Alert.alert(
+        policiesLoadError,
+        'Revisa tu conexión y pulsa «Reintentar» en esta pantalla, o consulta con RRHH.'
+      );
+      return;
+    }
     if (step === 1 && !termsAccepted) {
       Alert.alert('Aceptación requerida', 'Debes aceptar el reglamento y términos para continuar.');
       return;
@@ -197,7 +257,7 @@ export default function OnboardingScreen() {
     if (finishing || !userId) return;
     setFinishing(true);
     try {
-      await runOnboardingCompletion(userId);
+      await runOnboardingCompletion(userId, companyId, employee?.id ?? null);
       releaseToMainApp();
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as Error).message) : String(e);
@@ -246,7 +306,7 @@ export default function OnboardingScreen() {
               <Ionicons name="people" size={36} color={theme.accent} />
             </View>
             <Text style={styles.cardTitle}>Misión y cultura</Text>
-            <Text style={styles.cardBody}>{missionVision || DEFAULT_MISSION}</Text>
+            <Text style={styles.cardBody}>{missionVision}</Text>
           </View>
         )}
 
@@ -256,16 +316,41 @@ export default function OnboardingScreen() {
               <Ionicons name="document-text" size={36} color={theme.accent} />
             </View>
             <Text style={styles.cardTitle}>Reglamento interno</Text>
-            <Text style={styles.cardBody}>{rulebook || DEFAULT_RULEBOOK}</Text>
+            {policiesLoadError ? (
+              <View style={styles.policiesErrorBanner}>
+                <Ionicons name="cloud-offline-outline" size={24} color="#B45309" />
+                <Text style={styles.policiesErrorTitle}>{policiesLoadError}</Text>
+                <Text style={styles.policiesErrorBody}>{ONBOARDING_POLICIES_FETCH_FAILED_BODY}</Text>
+                <TouchableOpacity
+                  style={styles.policiesRetryBtn}
+                  activeOpacity={0.85}
+                  onPress={() => void loadProfileAndCompany()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Reintentar cargar el reglamento"
+                >
+                  <Text style={styles.policiesRetryLabel}>Reintentar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={styles.cardBody}>{rulebook}</Text>
+            )}
             <View style={styles.switchRow}>
               <Switch
                 value={termsAccepted}
                 onValueChange={setTermsAccepted}
+                disabled={Boolean(policiesLoadError)}
                 trackColor={{ false: '#cbd5e1', true: theme.accent }}
                 thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
               />
-              <Text style={styles.switchLabel}>
-                Confirmo que he leído y acepto el reglamento y las políticas aplicables.
+              <Text
+                style={[
+                  styles.switchLabel,
+                  policiesLoadError ? styles.switchLabelDisabled : null,
+                ]}
+              >
+                {policiesLoadError
+                  ? 'Cuando el reglamento cargue correctamente, podrás confirmar tu lectura.'
+                  : 'Confirmo que he leído y acepto el reglamento y las políticas aplicables.'}
               </Text>
             </View>
           </View>
@@ -334,7 +419,15 @@ export default function OnboardingScreen() {
           >
             <Text style={styles.navBtnGhostText}>Atrás</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.navBtn} onPress={goNext} activeOpacity={0.88}>
+          <TouchableOpacity
+            style={[
+              styles.navBtn,
+              step === 1 && policiesLoadError ? styles.navBtnDisabled : null,
+            ]}
+            onPress={goNext}
+            activeOpacity={0.88}
+            disabled={step === 1 && Boolean(policiesLoadError)}
+          >
             <Text style={styles.navBtnText}>Siguiente</Text>
           </TouchableOpacity>
         </View>
@@ -458,6 +551,43 @@ const styles = StyleSheet.create({
     color: theme.textPrimary,
     lineHeight: 20,
   },
+  switchLabelDisabled: {
+    color: theme.textMuted,
+    fontWeight: '500',
+  },
+  policiesErrorBanner: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    padding: 16,
+    gap: 10,
+    marginBottom: 4,
+  },
+  policiesErrorTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  policiesErrorBody: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#78350F',
+    fontWeight: '500',
+  },
+  policiesRetryBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    backgroundColor: theme.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+  },
+  policiesRetryLabel: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   fnList: {
     marginTop: 8,
     gap: 12,
@@ -515,6 +645,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
+  },
+  navBtnDisabled: {
+    opacity: 0.45,
   },
   navBtnGhost: {
     backgroundColor: 'transparent',

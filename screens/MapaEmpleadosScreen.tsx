@@ -1,16 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text, Platform, Alert } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { MAP_REGION_WORLD_OVERVIEW, resolveAdminMapInitialRegion } from '../lib/mapInitialRegion';
 import { useAuth } from '../lib/AuthContext';
 
 type Profile = { first_name?: string | null; last_name?: string | null } | null;
 
 type TimeEntryRow = {
   id: string;
-  profile_id: string;
+  employee_id: string;
   clock_in: string;
   telemetry: {
     gps?: { lat?: number; lon?: number };
@@ -28,21 +29,17 @@ type ActiveEmployee = {
   longitude: number;
 };
 
-const MATAGALPA_REGION = {
-  latitude: 12.9256,
-  longitude: -85.9189,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05,
-};
-
 function parseCoords(telemetry: TimeEntryRow['telemetry']): { lat: number; lon: number } | null {
   if (!telemetry) return null;
   const gps = telemetry.gps;
   if (gps != null && typeof gps.lat === 'number' && typeof gps.lon === 'number') {
     return { lat: gps.lat, lon: gps.lon };
   }
-  const lat = (telemetry as any).latitude ?? (telemetry as any).lat;
-  const lon = (telemetry as any).longitude ?? (telemetry as any).lon ?? (telemetry as any).lng;
+  const ext = telemetry as Record<string, unknown>;
+  const latRaw = ext.latitude ?? ext.lat;
+  const lonRaw = ext.longitude ?? ext.lon ?? ext.lng;
+  const lat = typeof latRaw === 'number' ? latRaw : undefined;
+  const lon = typeof lonRaw === 'number' ? lonRaw : undefined;
   if (typeof lat === 'number' && typeof lon === 'number') return { lat, lon };
   return null;
 }
@@ -64,6 +61,8 @@ export default function MapaEmpleadosScreen() {
   const [employees, setEmployees] = useState<ActiveEmployee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [unauthorized, setUnauthorized] = useState(false);
+  const [initialMapRegion, setInitialMapRegion] = useState(MAP_REGION_WORLD_OVERVIEW);
+  const mapRef = useRef<MapView | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -75,7 +74,10 @@ export default function MapaEmpleadosScreen() {
 
         const userId = session?.user?.id ?? null;
         if (!userId) {
-          if (isMounted) setEmployees([]);
+          if (isMounted) {
+            setEmployees([]);
+            setInitialMapRegion(MAP_REGION_WORLD_OVERVIEW);
+          }
           return;
         }
 
@@ -86,18 +88,39 @@ export default function MapaEmpleadosScreen() {
           if (isMounted) {
             setUnauthorized(true);
             setEmployees([]);
+            setInitialMapRegion(MAP_REGION_WORLD_OVERVIEW);
           }
           return;
         }
         if (!companyId) {
-          if (isMounted) setEmployees([]);
+          if (isMounted) {
+            setEmployees([]);
+            setInitialMapRegion(MAP_REGION_WORLD_OVERVIEW);
+          }
           return;
         }
+
+        const branchId = employee?.branch_id ?? null;
+        let branchRow: Record<string, unknown> | null = null;
+        if (branchId) {
+          const { data: brData, error: brErr } = await supabase
+            .from('branches')
+            .select('*')
+            .eq('id', branchId)
+            .eq('company_id', companyId)
+            .maybeSingle();
+          if (!brErr && brData) {
+            branchRow = brData as Record<string, unknown>;
+          }
+        }
+
+        const nextRegion = await resolveAdminMapInitialRegion(branchRow);
+        if (isMounted) setInitialMapRegion(nextRegion);
 
         // CRÍTICO: scope estricto por company_id del visor (solo su empresa)
         const { data, error } = await supabase
           .from('time_entries')
-          .select('id, profile_id, clock_in, telemetry')
+          .select('id, employee_id, clock_in, telemetry')
           .eq('company_id', companyId)
           .is('clock_out', null);
 
@@ -106,15 +129,20 @@ export default function MapaEmpleadosScreen() {
         const rows = (data ?? []) as TimeEntryRow[];
         const list: ActiveEmployee[] = [];
 
-        const ids = rows.map((r) => r.profile_id).filter(Boolean);
-        const { data: empRows } = await supabase
-          .from('employees')
-          .select('user_id, first_name, last_name')
-          .eq('company_id', companyId)
-          .in('user_id', ids);
+        const ids = rows.map((r) => r.employee_id).filter(Boolean);
+        let empRows: { id?: string; first_name?: string | null; last_name?: string | null }[] = [];
+        if (ids.length > 0) {
+          const { data, error: empNameErr } = await supabase
+            .from('employees')
+            .select('id, first_name, last_name')
+            .eq('company_id', companyId)
+            .in('id', ids);
+          if (empNameErr) throw empNameErr;
+          empRows = (data ?? []) as typeof empRows;
+        }
         const nameById = new Map<string, string>();
-        for (const r of (empRows ?? []) as any[]) {
-          const id = String(r?.user_id ?? '');
+        for (const r of empRows) {
+          const id = String(r?.id ?? '');
           const name =
             [r?.first_name, r?.last_name].filter(Boolean).join(' ') || 'Empleado';
           if (id) nameById.set(id, name);
@@ -124,7 +152,7 @@ export default function MapaEmpleadosScreen() {
           const coords = parseCoords(row.telemetry);
           if (!coords) continue;
 
-          const name = nameById.get(row.profile_id) ?? 'Empleado';
+          const name = nameById.get(String(row.employee_id)) ?? 'Empleado';
 
           list.push({
             id: row.id,
@@ -140,6 +168,7 @@ export default function MapaEmpleadosScreen() {
         console.error('Error al cargar empleados en turno:', e);
         if (isMounted) {
           setEmployees([]);
+          setInitialMapRegion(MAP_REGION_WORLD_OVERVIEW);
           Alert.alert(
             'Error de Conexión',
             'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
@@ -154,7 +183,15 @@ export default function MapaEmpleadosScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profile?.role, employee?.company_id]);
+  }, [session?.user?.id, profile?.role, employee?.company_id, employee?.branch_id]);
+
+  useEffect(() => {
+    if (employees.length === 0 || !mapRef.current) return;
+    mapRef.current.fitToCoordinates(
+      employees.map((e) => ({ latitude: e.latitude, longitude: e.longitude })),
+      { edgePadding: { top: 72, right: 48, bottom: 72, left: 48 }, animated: true }
+    );
+  }, [employees]);
 
   if (!isLoading && unauthorized) {
     return (
@@ -167,8 +204,9 @@ export default function MapaEmpleadosScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <MapView
+        ref={mapRef}
         style={styles.map}
-        initialRegion={MATAGALPA_REGION}
+        initialRegion={initialMapRegion}
         showsUserLocation={false}
         showsMyLocationButton={true}
       >

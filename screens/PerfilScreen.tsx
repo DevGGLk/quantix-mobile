@@ -15,9 +15,35 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import type { TabCompositeNavigation } from '../types/navigation';
 
 import { supabase } from '../lib/supabase';
+import { checklistGivesPoints, checklistPointsFromRow } from '../lib/checklistReward';
 import { useAuth } from '../lib/AuthContext';
+import type { GamificationBalanceRow, GamificationSettingsRow } from '../lib/gamificationRows';
+
+type LeaderboardBalanceRow = {
+  employee_id?: string | null;
+  balance?: number | string | null;
+};
+
+type EmployeeNameRow = {
+  id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+};
+
+type BadgeRow = {
+  id?: string | null;
+  badge_name?: string | null;
+  icon_name?: string | null;
+};
+
+type BoostRow = {
+  id?: string | null;
+  title?: string | null;
+  description?: string | null;
+};
 
 // Paleta VIP Zone alineada al portal web QuantixHR
 const VIP = {
@@ -70,7 +96,7 @@ function formatTransactionDate(iso: string | null | undefined): string {
 
 export default function PerfilScreen() {
   const { session, profile, employee } = useAuth();
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<TabCompositeNavigation<'Perfil'>>();
   const [perfil, setPerfil] = useState<PerfilState>({
     nombre: '',
     cargo: '',
@@ -82,8 +108,10 @@ export default function PerfilScreen() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hireDate, setHireDate] = useState<string | null>(null);
+  /** true si `hire_date` viene de la columna contractual en `employees`; false si solo hay `created_at`. */
+  const [hireDateFromContract, setHireDateFromContract] = useState(false);
   const [vacationDays, setVacationDays] = useState<number | null>(null);
-  const [funciones, setFunciones] = useState<any[]>([]);
+  const [funciones, setFunciones] = useState<Record<string, unknown>[]>([]);
   const [historialTransacciones, setHistorialTransacciones] = useState<TransaccionItem[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedBadge, setSelectedBadge] = useState<BadgeModalType>(null);
@@ -133,12 +161,14 @@ export default function PerfilScreen() {
             return;
           }
 
-          const ids = topData.map((r: any) => r.employee_id).filter(Boolean);
+          const ids = (topData as LeaderboardBalanceRow[])
+            .map((r) => r.employee_id)
+            .filter(Boolean) as string[];
           const { data: empRows, error: empErr } = await supabase
             .from('employees')
-            .select('user_id, first_name, last_name')
+            .select('id, first_name, last_name')
             .eq('company_id', companyId)
-            .in('user_id', ids);
+            .in('id', ids);
 
           if (empErr || !Array.isArray(empRows) || empRows.length === 0) {
             if (isMounted) setLeaderboard([]);
@@ -146,18 +176,18 @@ export default function PerfilScreen() {
           }
 
           const nameById = new Map(
-            empRows.map((e: any) => [
-              e.user_id,
+            (empRows as EmployeeNameRow[]).map((e) => [
+              String(e.id ?? ''),
               ([e.first_name, e.last_name].filter(Boolean).join(' ').trim() || 'Empleado') as string,
             ])
           );
 
-          const filtered = topData
-            .filter((b: any) => nameById.has(b.employee_id))
+          const filtered = (topData as LeaderboardBalanceRow[])
+            .filter((b) => nameById.has(String(b.employee_id ?? '')))
             .slice(0, 3)
-            .map((b: any, idx: number) => ({
+            .map((b, idx: number) => ({
               rank: idx + 1,
-              name: nameById.get(b.employee_id) ?? 'Empleado',
+              name: nameById.get(String(b.employee_id ?? '')) ?? 'Empleado',
               coins: Number(b.balance) || 0,
             }));
 
@@ -171,60 +201,50 @@ export default function PerfilScreen() {
             return;
           }
 
-          // Intento 1: columna gives_points/is_active (según instrucción)
           const { data, error } = await supabase
             .from('checklists')
-            .select('id,title,reward_points')
+            .select('*')
             .eq('company_id', companyId)
             .eq('is_active', true)
-            .eq('gives_points', true)
-            .limit(6);
+            .limit(40);
 
-          if (!error && Array.isArray(data)) {
-            const mapped: MissionItem[] = data.map((c: any) => ({
-              id: String(c.id),
-              title: String(c.title ?? 'Checklist'),
-              pts: Number(c.reward_points) || 0,
-              completed: false,
-            }));
-            if (isMounted) setMissions(mapped);
+          if (error || !Array.isArray(data)) {
+            if (isMounted) setMissions([]);
             return;
           }
 
-          // Fallback: checklists activas con reward_points > 0
-          const { data: data2, error: error2 } = await supabase
-            .from('checklists')
-            .select('id,title,reward_points')
-            .eq('company_id', companyId)
-            .eq('is_active', true)
-            .gt('reward_points', 0)
-            .limit(6);
-
-          const mapped: MissionItem[] = Array.isArray(data2)
-            ? data2.map((c: any) => ({
-                id: String(c.id),
-                title: String(c.title ?? 'Checklist'),
-                pts: Number(c.reward_points) || 0,
-                completed: false,
-              }))
-            : [];
+          const mapped: MissionItem[] = data
+            .map((c) => c as Record<string, unknown>)
+            .filter((row) => checklistGivesPoints(row))
+            .slice(0, 6)
+            .map((row) => ({
+              id: String(row.id ?? ''),
+              title: String(row.title ?? 'Checklist'),
+              pts: checklistPointsFromRow(row),
+              completed: false,
+            }));
 
           if (isMounted) setMissions(mapped);
           return;
         }
 
         if (selectedBadge === 'ribbon') {
+          const empId = employee?.id ?? null;
+          if (!empId) {
+            if (isMounted) setInsignias([]);
+            return;
+          }
           const { data, error } = await supabase
             .from('employee_badges')
             .select('id, badge_name, icon_name')
-            .eq('profile_id', userId)
+            .eq('employee_id', empId)
             .order('created_at', { ascending: false });
 
           if (error) throw error;
 
           const mapped: InsigniaItem[] = Array.isArray(data)
-            ? data.map((b: any) => ({
-                id: String(b.id),
+            ? (data as BadgeRow[]).map((b) => ({
+                id: String(b.id ?? ''),
                 name: String(b.badge_name ?? 'Insignia'),
                 icon: String(b.icon_name ?? 'star'),
               }))
@@ -254,10 +274,10 @@ export default function PerfilScreen() {
           if (error) throw error;
 
           const mapped: BoostItem[] = Array.isArray(data)
-            ? data.map((b: any) => ({
-                id: String(b.id),
+            ? (data as BoostRow[]).map((b) => ({
+                id: String(b.id ?? ''),
                 title: String(b.title ?? 'Boost activo'),
-                description: (b.description as string | null | undefined) ?? null,
+                description: (typeof b.description === 'string' ? b.description : null) ?? null,
               }))
             : [];
 
@@ -286,7 +306,7 @@ export default function PerfilScreen() {
     return () => {
       isMounted = false;
     };
-  }, [modalVisible, selectedBadge, companyId]);
+  }, [modalVisible, selectedBadge, companyId, employee?.id, session?.user?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -318,8 +338,9 @@ export default function PerfilScreen() {
               .maybeSingle();
 
             if (!settingsError && isMounted) {
-              const name = String((settings as any)?.currency_name ?? '').trim();
-              const sym = String((settings as any)?.symbol ?? '').trim();
+              const srow = settings as GamificationSettingsRow | null;
+              const name = String(srow?.currency_name ?? '').trim();
+              const sym = String(srow?.symbol ?? '').trim();
               setCurrencyName(name || 'Coins');
               setCurrencySymbol(sym || '🪙');
             }
@@ -338,48 +359,80 @@ export default function PerfilScreen() {
           }
         }
 
-        // Enterprise: estos campos podrían vivir en employees en el futuro.
-        // De momento, mantenemos defaults seguros si no están disponibles.
-        const hireDateRaw = null;
-        const vacationRaw = null as number | null;
         const jobTitleId = (employee?.job_title_id as string | null) ?? null;
+        const empRecordId = employee?.id ?? null;
 
-        const vacationParsed =
-          typeof vacationRaw === 'number' && Number.isFinite(vacationRaw) ? vacationRaw : 0;
+        let hireDateIso: string | null = null;
+        let hireIsContract = false;
+        let vacationAvailable: number | null = null;
 
-        if (isMounted) {
-          setHireDate(hireDateRaw);
-          setVacationDays(vacationParsed);
-        }
-
-        let puntos = 0;
-        try {
-          const { data: balanceData, error: balanceError } = await supabase
-            .from('gamification_balances')
-            .select('balance')
-            .eq('employee_id', userId)
+        if (empRecordId) {
+          // `select('*')` evita error si aún no existen columnas opcionales (`hire_date`, etc.).
+          const { data: laborRow, error: laborErr } = await supabase
+            .from('employees')
+            .select('*')
+            .eq('id', empRecordId)
             .maybeSingle();
 
-          if (balanceError) {
-            console.error('Error en tabla gamification_balances:', balanceError);
+          if (!laborErr && laborRow) {
+            const lr = laborRow as Record<string, unknown>;
+            if (lr.hire_date != null && String(lr.hire_date).trim() !== '') {
+              hireDateIso = String(lr.hire_date).slice(0, 10);
+              hireIsContract = true;
+            }
+            const vd = lr.vacation_days_balance;
+            if (typeof vd === 'number' && Number.isFinite(vd)) {
+              vacationAvailable = vd;
+            } else if (vd != null && vd !== '') {
+              const n = Number(vd);
+              if (Number.isFinite(n)) vacationAvailable = n;
+            }
+          } else if (laborErr) {
+            console.warn('Perfil employees (expediente):', laborErr.message);
+          }
+        }
+
+        const createdSlice = employee?.created_at?.slice(0, 10) ?? null;
+        if (hireDateIso == null && createdSlice) {
+          hireDateIso = createdSlice;
+        }
+
+        if (isMounted) {
+          setHireDate(hireDateIso);
+          setHireDateFromContract(hireIsContract);
+          setVacationDays(vacationAvailable);
+        }
+        let puntos = 0;
+        if (empRecordId) {
+          try {
+            const { data: balanceData, error: balanceError } = await supabase
+              .from('gamification_balances')
+              .select('balance')
+              .eq('employee_id', empRecordId)
+              .maybeSingle();
+
+            if (balanceError) {
+              console.error('Error en tabla gamification_balances:', balanceError);
+              if (isMounted) {
+                Alert.alert(
+                  'Error de Conexión',
+                  'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
+                );
+              }
+            }
+
+            const bal = balanceData as GamificationBalanceRow | null;
+            if (bal && typeof bal.balance === 'number') {
+              puntos = bal.balance;
+            }
+          } catch (balanceException) {
+            console.error('Excepción al leer gamification_balances:', balanceException);
             if (isMounted) {
               Alert.alert(
                 'Error de Conexión',
                 'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
               );
             }
-          }
-
-          if (balanceData && typeof (balanceData as any).balance === 'number') {
-            puntos = (balanceData as any).balance as number;
-          }
-        } catch (balanceException) {
-          console.error('Excepción al leer gamification_balances:', balanceException);
-          if (isMounted) {
-            Alert.alert(
-              'Error de Conexión',
-              'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
-            );
           }
         }
 
@@ -390,8 +443,8 @@ export default function PerfilScreen() {
 
         try {
           if (jobTitleId) {
-            let funcionesData: any[] | null = null;
-            let funcionesError: any = null;
+            let funcionesData: Record<string, unknown>[] | null = null;
+            let funcionesError: { message?: string } | null = null;
 
             // Hardening: si la tabla soporta scope por empresa, lo aplicamos.
             if (companyIdRaw) {
@@ -402,14 +455,14 @@ export default function PerfilScreen() {
                 .eq('company_id', companyIdRaw);
 
               if (!scopedRes.error) {
-                funcionesData = scopedRes.data as any[] | null;
+                funcionesData = (scopedRes.data ?? []) as Record<string, unknown>[];
               } else {
                 // Fallback compatible si la columna company_id no existe en esta tabla.
                 const fallbackRes = await supabase
                   .from('job_functions')
                   .select('*')
                   .eq('job_title_id', jobTitleId);
-                funcionesData = fallbackRes.data as any[] | null;
+                funcionesData = (fallbackRes.data ?? []) as Record<string, unknown>[];
                 funcionesError = fallbackRes.error;
               }
             } else {
@@ -417,7 +470,7 @@ export default function PerfilScreen() {
                 .from('job_functions')
                 .select('*')
                 .eq('job_title_id', jobTitleId);
-              funcionesData = fallbackRes.data as any[] | null;
+              funcionesData = (fallbackRes.data ?? []) as Record<string, unknown>[];
               funcionesError = fallbackRes.error;
             }
 
@@ -447,15 +500,26 @@ export default function PerfilScreen() {
         }
 
         try {
-          const { data: txData, error: txError } = await supabase
-            .from('gamification_transactions')
-            .select('*')
-            .eq('employee_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(5);
+          if (empRecordId) {
+            const { data: txData, error: txError } = await supabase
+              .from('gamification_transactions')
+              .select('*')
+              .eq('employee_id', empRecordId)
+              .order('created_at', { ascending: false })
+              .limit(5);
 
-          if (!txError && isMounted) {
-            setHistorialTransacciones((txData ?? []) as TransaccionItem[]);
+            if (!txError && isMounted) {
+              setHistorialTransacciones((txData ?? []) as TransaccionItem[]);
+            } else if (isMounted) {
+              setHistorialTransacciones([]);
+              if (txError) {
+                console.error('Error en tabla gamification_transactions:', txError);
+                Alert.alert(
+                  'Error de Conexión',
+                  'No pudimos cargar tu historial de puntos. Intenta de nuevo más tarde.'
+                );
+              }
+            }
           } else if (isMounted) {
             setHistorialTransacciones([]);
           }
@@ -486,11 +550,12 @@ export default function PerfilScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, employee?.id, employee?.company_id, employee?.job_title_id, profile?.role, employee?.first_name, employee?.last_name]);
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      const { error: signOutErr } = await supabase.auth.signOut();
+      if (signOutErr) throw signOutErr;
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'No se pudo cerrar sesión. Intenta de nuevo.';
@@ -754,11 +819,14 @@ export default function PerfilScreen() {
             <Text style={styles.laborValue}>
               {formattedHireDate ?? 'No registrado'}
             </Text>
+            {!hireDateFromContract && formattedHireDate ? (
+              <Text style={styles.laborHint}> (alta en el sistema)</Text>
+            ) : null}
           </Text>
           <Text style={styles.laborLabel}>
-            Días de Vacaciones Disponibles:{' '}
+            Días de vacaciones disponibles:{' '}
             <Text style={styles.laborValue}>
-              {typeof vacationDays === 'number' ? vacationDays : 0}
+              {typeof vacationDays === 'number' ? vacationDays : '—'}
             </Text>
           </Text>
         </View>
@@ -767,12 +835,10 @@ export default function PerfilScreen() {
           <View style={styles.functionsCard}>
             <Text style={styles.functionsTitle}>Mis Responsabilidades</Text>
             {funciones.map((fn, index) => {
-              const key = fn.id ?? index;
-              const text =
-                fn.name ??
-                fn.title ??
-                fn.description ??
-                'Responsabilidad de puesto';
+              const key = String(fn.id ?? index);
+              const raw =
+                fn.name ?? fn.title ?? fn.description ?? 'Responsabilidad de puesto';
+              const text = typeof raw === 'string' ? raw : String(raw);
               return (
                 <View key={key} style={styles.functionRow}>
                   <Text style={styles.functionBullet}>•</Text>
@@ -782,6 +848,19 @@ export default function PerfilScreen() {
             })}
           </View>
         )}
+
+        {__DEV__ ? (
+          <TouchableOpacity
+            style={styles.sentryTestButton}
+            onPress={() => {
+              throw new Error('¡Prueba de Crash QuantixHR!');
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="bug-outline" size={18} color={VIP.textOnLight} />
+            <Text style={styles.sentryTestText}>Test Sentry (solo desarrollo)</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {/* Sección 4: Cerrar Sesión */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
@@ -1043,6 +1122,23 @@ const styles = StyleSheet.create({
   pointsRed: {
     color: '#ef4444',
   },
+  sentryTestButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: VIP.bgScreen,
+    borderWidth: 1,
+    borderColor: VIP.buttonGold,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  sentryTestText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: VIP.textOnLight,
+  },
   logoutButton: {
     marginTop: 8,
     flexDirection: 'row',
@@ -1093,6 +1189,11 @@ const styles = StyleSheet.create({
   laborValue: {
     fontWeight: '700',
     color: '#111827',
+  },
+  laborHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: VIP.textMuted,
   },
   functionsCard: {
     marginTop: 16,

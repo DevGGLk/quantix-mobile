@@ -14,22 +14,19 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { errorMessage } from '../lib/errorMessage';
+import type { RootStackNavigation, RootStackParamList } from '../types/navigation';
 
-type ChecklistItem = {
+type ChecklistItem = Record<string, unknown> & {
   id: string;
   title?: string | null;
   label?: string | null;
   order_index?: number | null;
-  [key: string]: any;
-};
-
-type ResolverParams = {
-  ResolverChecklist: { checklist: { id: string; title?: string; [key: string]: any } };
 };
 
 export default function ResolverChecklistScreen() {
-  const navigation = useNavigation<any>();
-  const route = useRoute<RouteProp<ResolverParams, 'ResolverChecklist'>>();
+  const navigation = useNavigation<RootStackNavigation>();
+  const route = useRoute<RouteProp<RootStackParamList, 'ResolverChecklist'>>();
   const checklist = route.params?.checklist;
   const { session, employee } = useAuth();
 
@@ -126,13 +123,14 @@ export default function ResolverChecklistScreen() {
     try {
       setIsSubmitting(true);
 
-      const employeeId = session?.user?.id ?? null;
-      if (!employeeId) {
-        Alert.alert('Error', 'No se pudo obtener tu sesión.');
+      const authUserId = session?.user?.id ?? null;
+      const employeeRowId = employee?.id ?? null;
+      if (!authUserId || !employeeRowId) {
+        Alert.alert('Error', 'No se pudo obtener tu expediente de empleado.');
         return;
       }
 
-      const canAccess = await validateChecklistOwnership(employeeId, checklist.id);
+      const canAccess = await validateChecklistOwnership(authUserId, checklist.id);
       if (!canAccess) {
         Alert.alert('Acceso denegado', 'Este checklist no pertenece a tu empresa.');
         return;
@@ -144,7 +142,7 @@ export default function ResolverChecklistScreen() {
 
       const { error: insertError } = await supabase.from('checklist_submissions').insert({
         checklist_id: checklist.id,
-        employee_id: employeeId,
+        employee_id: employeeRowId,
         completion_percentage,
       });
 
@@ -155,9 +153,9 @@ export default function ResolverChecklistScreen() {
         `Cumplimiento: ${completion_percentage}%`,
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error al enviar checklist:', e);
-      Alert.alert('Error', e?.message ?? 'No se pudo enviar el reporte.');
+      Alert.alert('Error', errorMessage(e) || 'No se pudo enviar el reporte.');
     } finally {
       setIsSubmitting(false);
     }

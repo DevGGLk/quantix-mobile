@@ -14,10 +14,13 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
+import type { TabCompositeNavigation } from '../types/navigation';
+import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { haversineDistanceMeters, parseBranchGeo, type BranchGeo } from '../lib/geo';
 import { useAuth } from '../lib/AuthContext';
+import { errorMessage } from '../lib/errorMessage';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -29,13 +32,70 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const FORCE_SHOW_ADMIN_PANEL = false;
+/** Solo para demos / soporte: `EXPO_PUBLIC_FORCE_ADMIN_PANEL=true` en `.env`. */
+const FORCE_SHOW_ADMIN_PANEL =
+  String(process.env.EXPO_PUBLIC_FORCE_ADMIN_PANEL ?? '').toLowerCase() === 'true';
 
-/** Debe coincidir con el esquema / web (time_events). */
-const PAUSE_EVENT_START = 'pause_start';
-const PAUSE_EVENT_END = 'pause_end';
+/** Valores de `public.time_event_type` (p. ej. break_start / break_end). */
+const PAUSE_EVENT_START = 'break_start';
+const PAUSE_EVENT_END = 'break_end';
 
 const API_BASE = (process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? '').replace(/\/$/, '');
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  if (!text.trim()) return null;
+  try {
+    const v = JSON.parse(text) as unknown;
+    return v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function clockInResponseErrorMessage(
+  json: Record<string, unknown> | null,
+  text: string,
+  status: number
+): string {
+  const e = json?.error ?? json?.message;
+  if (typeof e === 'string' && e.trim()) return e;
+  return text?.slice(0, 200) || `HTTP ${status}`;
+}
+
+function extractClockInTimeEntryId(json: Record<string, unknown> | null): string | null {
+  if (!json) return null;
+  for (const key of ['timeEntryId', 'time_entry_id', 'id'] as const) {
+    const v = json[key];
+    if (typeof v === 'string' && v) return v;
+  }
+  const data = json.data;
+  if (data && typeof data === 'object' && data !== null && !Array.isArray(data)) {
+    const id = (data as Record<string, unknown>).id;
+    if (typeof id === 'string') return id;
+  }
+  return null;
+}
+
+type HomePerfil = {
+  first_name: string | null;
+  last_name: string | null;
+  role: string | null;
+};
+
+type CompanyAnnouncement = {
+  title: string;
+  content: string;
+  created_at?: string;
+  is_urgent?: boolean;
+};
+
+type CompanyEvent = {
+  title: string;
+  event_date: string;
+  location?: string | null;
+};
 
 async function registerForPushNotificationsAsync(userId: string): Promise<void> {
   try {
@@ -52,18 +112,27 @@ async function registerForPushNotificationsAsync(userId: string): Promise<void> 
     if (finalStatus !== 'granted') return;
 
     const token = (await Notifications.getExpoPushTokenAsync()).data;
-    await supabase.from('profiles').update({ push_token: token }).eq('id', userId);
-  } catch (e: any) {
-    console.warn('Fallo al registrar Push Token:', e?.message ?? String(e));
+    const { error: pushProfileErr } = await supabase
+      .from('profiles')
+      .update({ push_token: token })
+      .eq('id', userId);
+    if (pushProfileErr) {
+      console.warn('profiles push_token:', pushProfileErr.message);
+      captureException(pushProfileErr, { area: 'push_notifications', stage: 'persist_token' });
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn('Fallo al registrar Push Token:', msg);
+    captureException(e, { area: 'push_notifications' });
   }
 }
 
 async function fetchPauseState(timeEntryId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from('time_events')
-    .select('*')
+    .select('event')
     .eq('time_entry_id', timeEntryId)
-    .order('created_at', { ascending: false })
+    .order('occurred_at', { ascending: false })
     .limit(1);
 
   if (error) {
@@ -71,7 +140,7 @@ async function fetchPauseState(timeEntryId: string): Promise<boolean> {
     return false;
   }
   const row = data?.[0] as Record<string, unknown> | undefined;
-  const last = String(row?.event_type ?? row?.type ?? row?.kind ?? '');
+  const last = String(row?.event ?? '');
   return last === PAUSE_EVENT_START;
 }
 
@@ -94,31 +163,20 @@ async function clockInViaBackendApi(
       body: JSON.stringify({ latitude, longitude }),
     });
     const text = await res.text();
-    let json: any = null;
-    try {
-      json = text ? JSON.parse(text) : null;
-    } catch {
-      json = null;
-    }
+    const json = parseJsonObject(text);
     if (!res.ok) {
-      const msg =
-        json?.error ??
-        json?.message ??
-        (text?.slice(0, 200) || `HTTP ${res.status}`);
-      return { ok: false, error: String(msg) };
+      return {
+        ok: false,
+        error: clockInResponseErrorMessage(json, text, res.status),
+      };
     }
-    const id =
-      json?.timeEntryId ??
-      json?.time_entry_id ??
-      json?.id ??
-      json?.data?.id ??
-      null;
+    const id = extractClockInTimeEntryId(json);
     if (!id) {
       return { ok: false, error: 'Respuesta del servidor sin id de marcaje.' };
     }
-    return { ok: true, timeEntryId: String(id) };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? String(e) };
+    return { ok: true, timeEntryId: id };
+  } catch (e: unknown) {
+    return { ok: false, error: errorMessage(e) };
   }
 }
 
@@ -145,15 +203,15 @@ function assertInsideGeofence(
 }
 
 export default function HomeScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<TabCompositeNavigation<'Home'>>();
   const { session, profile: authProfile, employee, refresh: refreshAuth } = useAuth();
-  const [perfil, setPerfil] = useState<any>(null);
+  const employeeRecordId = employee?.id ?? null;
+  const [perfil, setPerfil] = useState<HomePerfil | null>(null);
   const [isLoadingPerfil, setIsLoadingPerfil] = useState(true);
-  const [profileId, setProfileId] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [branchGeo, setBranchGeo] = useState<BranchGeo | null>(null);
-  const [anuncios, setAnuncios] = useState<any[]>([]);
-  const [eventos, setEventos] = useState<any[]>([]);
+  const [anuncios, setAnuncios] = useState<CompanyAnnouncement[]>([]);
+  const [eventos, setEventos] = useState<CompanyEvent[]>([]);
   const [isLoadingHub, setIsLoadingHub] = useState(false);
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [isLoadingClockStatus, setIsLoadingClockStatus] = useState(true);
@@ -163,6 +221,13 @@ export default function HomeScreen() {
   const [isPauseActionLoading, setIsPauseActionLoading] = useState(false);
   /** Solo fallo crítico del perfil (bloquea nombre / empresa). */
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  /** Fallo al leer `time_entries` (estado del reloj); no usar Alert en Home para no tapar el portal. */
+  const [clockStatusLoadError, setClockStatusLoadError] = useState<string | null>(null);
+  /** Fallo al cargar geocerca de sucursal (`branches`) cuando el empleado ya tiene `branch_id`. */
+  const [branchGeoLoadError, setBranchGeoLoadError] = useState<string | null>(null);
+  /** Fallos al cargar muro de inicio (noticias / eventos). */
+  const [announcementsLoadError, setAnnouncementsLoadError] = useState<string | null>(null);
+  const [eventsLoadError, setEventsLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -175,13 +240,12 @@ export default function HomeScreen() {
         if (!userId) {
           if (isMounted) {
             setPerfil(null);
-            setProfileId(null);
             setCompanyId(null);
             setBranchGeo(null);
+            setBranchGeoLoadError(null);
           }
           return;
         }
-        if (isMounted) setProfileId(userId);
         registerForPushNotificationsAsync(userId);
 
         // Refrescamos en background por si venimos de login y aún no está en memoria.
@@ -199,11 +263,19 @@ export default function HomeScreen() {
             .maybeSingle();
           if (branchErr) {
             console.warn('branches (geocerca):', branchErr.message);
-            if (isMounted) setBranchGeo(null);
+            captureException(branchErr, { area: 'home_branch_geo', stage: 'branches_select' });
+            if (isMounted) {
+              setBranchGeo(null);
+              setBranchGeoLoadError(
+                'No pudimos cargar la geocerca de tu sucursal. El marcaje puede bloquearse hasta que se restablezca la conexión o RRHH revise la configuración.'
+              );
+            }
           } else if (isMounted) {
+            setBranchGeoLoadError(null);
             setBranchGeo(parseBranchGeo(branchRow as Record<string, unknown>));
           }
         } else if (isMounted) {
+          setBranchGeoLoadError(null);
           setBranchGeo(null);
         }
 
@@ -216,12 +288,12 @@ export default function HomeScreen() {
           });
           setCompanyId(cid);
         }
-      } catch (_e: any) {
+      } catch (_e: unknown) {
         if (isMounted) {
           setPerfil(null);
-          setProfileId(null);
           setCompanyId(null);
           setBranchGeo(null);
+          setBranchGeoLoadError(null);
           setProfileLoadError(
             'No pudimos cargar tu perfil. Revisa tu conexión o intenta más tarde.'
           );
@@ -257,19 +329,9 @@ export default function HomeScreen() {
       try {
         setIsLoadingClockStatus(true);
 
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) {
-          console.warn('clock status auth:', userError.message);
+        if (!employeeRecordId) {
           if (isMounted) {
-            setIsClockedIn(false);
-            setActiveTimeEntryId(null);
-            setIsOnPause(false);
-          }
-          return;
-        }
-        const currentProfileId = profileId ?? userData.user?.id ?? null;
-        if (!currentProfileId) {
-          if (isMounted) {
+            setClockStatusLoadError(null);
             setIsClockedIn(false);
             setActiveTimeEntryId(null);
             setIsOnPause(false);
@@ -279,6 +341,7 @@ export default function HomeScreen() {
 
         if (!companyId) {
           if (isMounted) {
+            setClockStatusLoadError(null);
             setIsClockedIn(false);
             setActiveTimeEntryId(null);
             setIsOnPause(false);
@@ -289,7 +352,7 @@ export default function HomeScreen() {
         let query = supabase
           .from('time_entries')
           .select('id, entry_type, clock_in, clock_out, company_id')
-          .eq('profile_id', currentProfileId)
+          .eq('employee_id', employeeRecordId)
           .eq('company_id', companyId)
           .is('clock_out', null)
           .order('clock_in', { ascending: false })
@@ -299,13 +362,19 @@ export default function HomeScreen() {
 
         if (error) {
           console.warn('time_entries (estado reloj):', error.message);
+          captureException(error, { area: 'home_clock_status', stage: 'time_entries_select' });
           if (isMounted) {
+            setClockStatusLoadError(
+              'No pudimos verificar tu asistencia de hoy. Revisa tu conexión o intenta más tarde.'
+            );
             setIsClockedIn(false);
             setActiveTimeEntryId(null);
             setIsOnPause(false);
           }
           return;
         }
+
+        if (isMounted) setClockStatusLoadError(null);
 
         const last = data?.[0] as { id?: string; clock_out?: string | null } | undefined;
         const active = Boolean(last?.id) && !last?.clock_out;
@@ -320,9 +389,13 @@ export default function HomeScreen() {
             setIsOnPause(false);
           }
         }
-      } catch (e: any) {
-        console.warn('loadTodayClockStatus:', e?.message ?? e);
+      } catch (e: unknown) {
+        console.warn('loadTodayClockStatus:', errorMessage(e));
+        captureException(e, { area: 'home_clock_status', stage: 'loadTodayClockStatus' });
         if (isMounted) {
+          setClockStatusLoadError(
+            'No pudimos verificar tu asistencia de hoy. Revisa tu conexión o intenta más tarde.'
+          );
           setIsClockedIn(false);
           setActiveTimeEntryId(null);
           setIsOnPause(false);
@@ -336,7 +409,7 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, [profileId, companyId, refreshPauseState]);
+  }, [employeeRecordId, companyId, refreshPauseState]);
 
   useEffect(() => {
     let isMounted = true;
@@ -346,6 +419,10 @@ export default function HomeScreen() {
 
       try {
         setIsLoadingHub(true);
+        if (isMounted) {
+          setAnnouncementsLoadError(null);
+          setEventsLoadError(null);
+        }
 
         const { data: anunciosData, error: anunciosError } = await supabase
           .from('company_announcements')
@@ -357,9 +434,16 @@ export default function HomeScreen() {
 
         if (anunciosError) {
           console.warn('company_announcements:', anunciosError.message);
-          if (isMounted) setAnuncios([]);
+          captureException(anunciosError, { area: 'home_hub', stage: 'company_announcements' });
+          if (isMounted) {
+            setAnuncios([]);
+            setAnnouncementsLoadError(
+              'No pudimos cargar las noticias. Revisa tu conexión o intenta más tarde.'
+            );
+          }
         } else if (isMounted) {
-          setAnuncios(anunciosData ?? []);
+          setAnnouncementsLoadError(null);
+          setAnuncios((anunciosData ?? []) as CompanyAnnouncement[]);
         }
 
         const { data: eventosData, error: eventosError } = await supabase
@@ -371,15 +455,29 @@ export default function HomeScreen() {
 
         if (eventosError) {
           console.warn('company_events:', eventosError.message);
-          if (isMounted) setEventos([]);
+          captureException(eventosError, { area: 'home_hub', stage: 'company_events' });
+          if (isMounted) {
+            setEventos([]);
+            setEventsLoadError(
+              'No pudimos cargar los eventos. Revisa tu conexión o intenta más tarde.'
+            );
+          }
         } else if (isMounted) {
-          setEventos(eventosData ?? []);
+          setEventsLoadError(null);
+          setEventos((eventosData ?? []) as CompanyEvent[]);
         }
-      } catch (e: any) {
-        console.warn('loadHubData:', e?.message ?? e);
+      } catch (e: unknown) {
+        console.warn('loadHubData:', errorMessage(e));
+        captureException(e, { area: 'home_hub', stage: 'loadHubData' });
         if (isMounted) {
           setAnuncios([]);
           setEventos([]);
+          setAnnouncementsLoadError(
+            'No pudimos cargar el muro de inicio. Revisa tu conexión o intenta más tarde.'
+          );
+          setEventsLoadError(
+            'No pudimos cargar el muro de inicio. Revisa tu conexión o intenta más tarde.'
+          );
         }
       } finally {
         if (isMounted) setIsLoadingHub(false);
@@ -416,15 +514,11 @@ export default function HomeScreen() {
       const coords = await getCurrentLocation();
       if (!coords) return;
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) {
-        Alert.alert('Error', userError.message);
-        return;
-      }
-
-      const currentProfileId = profileId ?? userData.user?.id ?? null;
-      if (!currentProfileId) {
-        Alert.alert('Sesión inválida', 'No se pudo obtener el perfil del empleado.');
+      if (!employeeRecordId) {
+        Alert.alert(
+          'Expediente requerido',
+          'No se encontró tu registro de empleado. Contacta a RRHH para poder marcar entrada.'
+        );
         return;
       }
 
@@ -444,6 +538,7 @@ export default function HomeScreen() {
       if (API_BASE) {
         const apiResult = await clockInViaBackendApi(coords.lat, coords.lon);
         if (apiResult.ok) {
+          setClockStatusLoadError(null);
           setIsClockedIn(true);
           setActiveTimeEntryId(apiResult.timeEntryId);
           setIsOnPause(false);
@@ -454,7 +549,7 @@ export default function HomeScreen() {
       }
 
       const payload = {
-        profile_id: currentProfileId,
+        employee_id: employeeRecordId,
         company_id: companyId,
         branch_id: employee?.branch_id ?? null,
         entry_type: 'IN',
@@ -479,6 +574,7 @@ export default function HomeScreen() {
       }
 
       const newId = (data as { id?: string } | null)?.id ?? null;
+      setClockStatusLoadError(null);
       setIsClockedIn(!!newId);
       setActiveTimeEntryId(newId);
       setIsOnPause(false);
@@ -530,6 +626,7 @@ export default function HomeScreen() {
         return;
       }
 
+      setClockStatusLoadError(null);
       setIsClockedIn(false);
       setActiveTimeEntryId(null);
       setIsOnPause(false);
@@ -543,21 +640,23 @@ export default function HomeScreen() {
   };
 
   const handlePauseToggle = async (action: 'start' | 'end') => {
-    if (isPauseActionLoading || !activeTimeEntryId || !companyId || !profileId) return;
+    if (isPauseActionLoading || !activeTimeEntryId || !companyId || !employeeRecordId) return;
     setIsPauseActionLoading(true);
     try {
       const coords = await getCurrentLocation();
       if (!coords) return;
 
-      const eventType = action === 'start' ? PAUSE_EVENT_START : PAUSE_EVENT_END;
+      const event = action === 'start' ? PAUSE_EVENT_START : PAUSE_EVENT_END;
+      const occurred_at = new Date().toISOString();
       const { error } = await supabase.from('time_events').insert({
         time_entry_id: activeTimeEntryId,
         company_id: companyId,
-        profile_id: profileId,
-        event_type: eventType,
-        telemetry: {
+        event,
+        occurred_at,
+        metadata: {
           source: 'mobile',
           platform: Platform.OS,
+          employee_id: employeeRecordId,
           gps: { lat: coords.lat, lon: coords.lon },
         },
       });
@@ -573,8 +672,8 @@ export default function HomeScreen() {
       } else {
         Alert.alert('Pausa iniciada', 'Tu pausa quedó registrada.');
       }
-    } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo registrar la pausa.');
+    } catch (e: unknown) {
+      Alert.alert('Error', errorMessage(e) || 'No se pudo registrar la pausa.');
     } finally {
       setIsPauseActionLoading(false);
     }
@@ -624,6 +723,18 @@ export default function HomeScreen() {
       {profileLoadError && (
         <View style={styles.homeErrorWrap}>
           <Text style={styles.homeErrorText}>{profileLoadError}</Text>
+        </View>
+      )}
+
+      {clockStatusLoadError && !profileLoadError && (
+        <View style={styles.homeErrorWrap}>
+          <Text style={styles.homeErrorText}>{clockStatusLoadError}</Text>
+        </View>
+      )}
+
+      {branchGeoLoadError && !profileLoadError && (
+        <View style={styles.homeErrorWrap}>
+          <Text style={styles.homeErrorText}>{branchGeoLoadError}</Text>
         </View>
       )}
 
@@ -719,7 +830,9 @@ export default function HomeScreen() {
 
         <View style={styles.hubSection}>
           <Text style={styles.sectionTitle}>📢 Noticias del Grupo</Text>
-          {isLoadingHub && anuncios.length === 0 ? (
+          {announcementsLoadError ? (
+            <Text style={styles.hubSectionErrorText}>{announcementsLoadError}</Text>
+          ) : isLoadingHub && anuncios.length === 0 ? (
             <ActivityIndicator style={styles.sectionLoader} color={theme.accent} />
           ) : anuncios.length === 0 ? (
             <Text style={styles.emptyText}>
@@ -758,7 +871,9 @@ export default function HomeScreen() {
 
         <View style={styles.hubSection}>
           <Text style={styles.sectionTitle}>Próximos Eventos</Text>
-          {isLoadingHub && eventos.length === 0 ? (
+          {eventsLoadError ? (
+            <Text style={styles.hubSectionErrorText}>{eventsLoadError}</Text>
+          ) : isLoadingHub && eventos.length === 0 ? (
             <ActivityIndicator style={styles.sectionLoader} color={theme.accent} />
           ) : eventos.length === 0 ? (
             <Text style={styles.emptyText}>No hay eventos programados.</Text>
@@ -967,6 +1082,12 @@ const styles = StyleSheet.create({
   },
   sectionLoader: {
     marginTop: 8,
+  },
+  hubSectionErrorText: {
+    fontSize: 14,
+    color: '#EF4444',
+    fontWeight: '600',
+    marginTop: 4,
   },
   emptyText: {
     fontSize: 14,

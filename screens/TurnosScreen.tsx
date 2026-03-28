@@ -52,7 +52,7 @@ function mapScheduleStatus(raw?: string | null) {
 export default function TurnosScreen() {
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { session } = useAuth();
+  const { session, employee } = useAuth();
 
   useEffect(() => {
     let isMounted = true;
@@ -60,9 +60,9 @@ export default function TurnosScreen() {
     async function load() {
       setIsLoading(true);
       try {
-        const profileId = session?.user?.id ?? null;
+        const employeeId = employee?.id ?? null;
 
-        if (!profileId) {
+        if (!employeeId) {
           if (isMounted) setTurnos([]);
           return;
         }
@@ -70,7 +70,7 @@ export default function TurnosScreen() {
         const { data, error } = await supabase
           .from('employee_shifts')
           .select('*')
-          .eq('profile_id', profileId)
+          .eq('employee_id', employeeId)
           .order('start_time', { ascending: true });
 
         if (error) {
@@ -81,22 +81,32 @@ export default function TurnosScreen() {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayYmd = today.toISOString().slice(0, 10);
-        const mapped: Turno[] = (data ?? []).map((row: any) => {
-          const dateObj = row?.start_time ? new Date(row.start_time) : null;
+        const mapped: Turno[] = (data ?? []).map((row: Record<string, unknown>) => {
+          const startRaw = row.start_time;
+          let dateObj: Date | null = null;
+          if (typeof startRaw === 'string' || startRaw instanceof Date) {
+            const d = new Date(startRaw);
+            if (!Number.isNaN(d.getTime())) dateObj = d;
+          }
           const ymd = dateObj ? dateObj.toISOString().slice(0, 10) : '';
-          const branchName = (row?.branch_name as string) ?? 'Sucursal';
-          const templateName = (row?.shift_name as string) ?? '';
-          const category = (row?.shift_category as string) ?? '';
-          const isDayOff = Boolean(row?.is_day_off);
-          const statusRaw = row?.status ? String(row.status) : '';
+          const branchName = typeof row.branch_name === 'string' ? row.branch_name : 'Sucursal';
+          const templateName = typeof row.shift_name === 'string' ? row.shift_name : '';
+          const category = typeof row.shift_category === 'string' ? row.shift_category : '';
+          const isDayOff = Boolean(row.is_day_off);
+          const statusRaw = row.status != null ? String(row.status) : '';
           const status = mapScheduleStatus(statusRaw);
 
           const entrada = isDayOff ? '—' : dateObj ? dateObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '—';
-          const endObj = row?.end_time ? new Date(row.end_time) : null;
+          const endRaw = row.end_time;
+          let endObj: Date | null = null;
+          if (typeof endRaw === 'string' || endRaw instanceof Date) {
+            const e = new Date(endRaw);
+            if (!Number.isNaN(e.getTime())) endObj = e;
+          }
           const salida = isDayOff ? '—' : endObj ? endObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '—';
 
           return {
-            id: String(row?.id ?? Math.random()),
+            id: String(row.id ?? Math.random()),
             fecha: dateObj ? toSpanishDayLabel(dateObj) : 'Turno',
             entrada,
             salida,
@@ -127,7 +137,7 @@ export default function TurnosScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, employee?.id]);
 
   const renderItem = ({ item }: { item: Turno }) => (
     <View style={[styles.card, item.isToday && styles.cardToday]}>

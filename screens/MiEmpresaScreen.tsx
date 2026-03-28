@@ -133,13 +133,14 @@ export default function MiEmpresaScreen() {
 
         if (!isMounted) return;
 
-        const row = (companyRes.data ?? null) as any;
+        const row = (companyRes.data ?? null) as Record<string, unknown> | null;
         setCompany({
-          name: (row?.name as string | null) ?? null,
-          logo_url: (row?.logo_url as string | null) ?? null,
-          mission: (row?.mission as string | null) ?? null,
-          vision: (row?.vision as string | null) ?? null,
-          corporate_values: (row?.corporate_values as string | null) ?? null,
+          name: typeof row?.name === 'string' ? row.name : null,
+          logo_url: typeof row?.logo_url === 'string' ? row.logo_url : null,
+          mission: typeof row?.mission === 'string' ? row.mission : null,
+          vision: typeof row?.vision === 'string' ? row.vision : null,
+          corporate_values:
+            typeof row?.corporate_values === 'string' ? row.corporate_values : null,
         });
 
         setEmployeesFlat((employeesRes.data ?? []) as EmployeeRow[]);

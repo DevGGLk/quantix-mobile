@@ -11,23 +11,10 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../lib/supabase';
+import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
-
-// Paleta VIP Zone alineada al portal web QuantixHR (Perfil + Recompensas)
-const VIP = {
-  // Fondo general muy claro (área de contenido)
-  bgScreen: '#F3F4F6',
-  // Tarjetas y superficies principales (blanco limpio)
-  cardLavender: '#FFFFFF',
-  // Color protagonista de la tarjeta de saldo (teal corporativo)
-  purpleDeep: '#00C2D1',
-  // Texto principal sobre fondos claros
-  textOnLight: '#1E293B',
-  // Texto secundario/gris suave
-  textMuted: '#64748B',
-  // Botones de acción destacados (naranja corporativo)
-  buttonGold: '#FF9F43',
-} as const;
+import type { GamificationBalanceRow, GamificationSettingsRow } from '../lib/gamificationRows';
+import { errorMessage } from '../lib/errorMessage';
 
 type Reward = {
   id: string;
@@ -56,6 +43,7 @@ export default function TiendaScreen() {
         setIsLoading(true);
 
         const userId = session?.user?.id ?? null;
+        const empRowId = employee?.id ?? null;
         if (!userId) {
           if (isMounted) {
             setCompanyId(null);
@@ -70,11 +58,13 @@ export default function TiendaScreen() {
 
         let newCoins = 0;
         try {
-          const { data: balanceData, error: balanceError } = await supabase
-            .from('gamification_balances')
-            .select('balance')
-            .eq('employee_id', userId)
-            .maybeSingle();
+          const { data: balanceData, error: balanceError } = empRowId
+            ? await supabase
+                .from('gamification_balances')
+                .select('balance')
+                .eq('employee_id', empRowId)
+                .maybeSingle()
+            : { data: null, error: null };
 
           if (balanceError) {
             console.error('Error en tabla gamification_balances (Tienda):', balanceError);
@@ -84,8 +74,9 @@ export default function TiendaScreen() {
             );
           }
 
-          if (balanceData && typeof (balanceData as any).balance === 'number') {
-            newCoins = (balanceData as any).balance as number;
+          const bal = balanceData as GamificationBalanceRow | null;
+          if (bal && typeof bal.balance === 'number') {
+            newCoins = bal.balance;
           }
         } catch (balanceException) {
           console.error('Excepción al leer gamification_balances (Tienda):', balanceException);
@@ -98,7 +89,7 @@ export default function TiendaScreen() {
         if (!newCompanyId) {
           if (isMounted) {
             setCompanyId(null);
-            setEmployeeId(userId);
+            setEmployeeId(empRowId);
             setCoins(newCoins);
             setRewards([]);
           }
@@ -115,8 +106,9 @@ export default function TiendaScreen() {
 
           if (settingsError) throw settingsError;
 
-          const nextName = String((settings as any)?.currency_name ?? '').trim();
-          const nextSymbol = String((settings as any)?.symbol ?? '').trim();
+          const srow = settings as GamificationSettingsRow | null;
+          const nextName = String(srow?.currency_name ?? '').trim();
+          const nextSymbol = String(srow?.symbol ?? '').trim();
 
           if (isMounted) {
             setCurrencyName(nextName || 'Coins');
@@ -149,7 +141,7 @@ export default function TiendaScreen() {
 
         if (isMounted) {
           setCompanyId(newCompanyId);
-          setEmployeeId(userId);
+          setEmployeeId(empRowId);
           setEmployeeDisplayName(displayName);
           setCoins(newCoins);
           setRewards((rewardsData as Reward[]) ?? []);
@@ -174,7 +166,7 @@ export default function TiendaScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user?.id, employee?.id, employee?.company_id, employee?.first_name, employee?.last_name]);
 
   const handleCanjearPremio = async (premio: Reward) => {
     if (!employeeId || !companyId) {
@@ -240,9 +232,9 @@ export default function TiendaScreen() {
         '¡Felicidades!',
         'Tu premio ha sido solicitado. Pasa por administración para retirarlo.'
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error en canje (Tienda):', e);
-      Alert.alert('Error', e?.message ?? 'No se pudo completar el canje. Intenta de nuevo.');
+      Alert.alert('Error', errorMessage(e) || 'No se pudo completar el canje. Intenta de nuevo.');
     } finally {
       setIsRedeemingId(null);
     }
@@ -264,7 +256,7 @@ export default function TiendaScreen() {
           <View style={styles.balanceCard}>
             <Text style={styles.balanceLabel}>Tus {currencyName}</Text>
             {isLoading ? (
-              <ActivityIndicator color={VIP.buttonGold} />
+              <ActivityIndicator color={theme.warning} />
             ) : (
               <Text style={styles.balanceValue}>
                 {coins} {currencySymbol}
@@ -275,7 +267,7 @@ export default function TiendaScreen() {
 
           {isLoading && (
             <View style={styles.loaderRow}>
-              <ActivityIndicator size="small" color={VIP.purpleDeep} />
+              <ActivityIndicator size="small" color={theme.accent} />
               <Text style={styles.loaderText}>Cargando catálogo de premios...</Text>
             </View>
           )}
@@ -308,7 +300,7 @@ export default function TiendaScreen() {
                     disabled={isRedeemingId === reward.id}
                   >
                     {isRedeemingId === reward.id ? (
-                      <ActivityIndicator color={VIP.textOnLight} />
+                      <ActivityIndicator color="#ffffff" />
                     ) : (
                       <Text style={styles.redeemButtonText}>Canjear Premio</Text>
                     )}
@@ -326,7 +318,7 @@ export default function TiendaScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: VIP.bgScreen,
+    backgroundColor: theme.storeBackground,
   },
   scroll: {
     flex: 1,
@@ -339,19 +331,19 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '700',
-    color: VIP.textOnLight,
+    color: theme.textPrimary,
     marginBottom: 16,
   },
   balanceCard: {
-    backgroundColor: VIP.purpleDeep,
+    backgroundColor: theme.accent,
     borderRadius: 18,
     padding: 18,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: VIP.buttonGold,
+    borderColor: theme.warning,
     ...Platform.select({
       ios: {
-        shadowColor: VIP.purpleDeep,
+        shadowColor: theme.accent,
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.18,
         shadowRadius: 16,
@@ -383,11 +375,11 @@ const styles = StyleSheet.create({
   },
   loaderText: {
     fontSize: 14,
-    color: VIP.textOnLight,
+    color: theme.textPrimary,
   },
   emptyText: {
     fontSize: 14,
-    color: VIP.textOnLight,
+    color: theme.textPrimary,
   },
   grid: {
     marginTop: 8,
@@ -397,11 +389,11 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '47%',
-    backgroundColor: VIP.cardLavender,
+    backgroundColor: theme.backgroundAlt,
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.border,
     ...Platform.select({
       ios: {
         shadowColor: '#000000',
@@ -415,7 +407,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: VIP.textOnLight,
+    color: theme.textPrimary,
     marginBottom: 8,
   },
   badge: {
@@ -429,16 +421,16 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 11,
     fontWeight: '700',
-    color: VIP.textOnLight,
+    color: theme.textPrimary,
   },
   stockText: {
     fontSize: 12,
-    color: VIP.textMuted,
+    color: theme.textSecondary,
     marginBottom: 10,
   },
   redeemButton: {
     marginTop: 'auto',
-    backgroundColor: VIP.buttonGold,
+    backgroundColor: theme.warning,
     borderRadius: 999,
     paddingVertical: 10,
     alignItems: 'center',
@@ -450,7 +442,7 @@ const styles = StyleSheet.create({
   redeemButtonText: {
     fontSize: 13,
     fontWeight: '700',
-    color: VIP.textOnLight,
+    color: '#ffffff',
   },
 });
 

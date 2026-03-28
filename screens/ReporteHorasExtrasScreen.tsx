@@ -13,12 +13,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { errorMessage } from '../lib/errorMessage';
 
 export default function ReporteHorasExtrasScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<RootStackNavigation>();
   const insets = useSafeAreaInsets();
   const { session, employee } = useAuth();
 
@@ -48,9 +50,9 @@ export default function ReporteHorasExtrasScreen() {
     try {
       setIsSubmitting(true);
 
-      const employeeId = session?.user?.id ?? null;
-      if (!employeeId) {
-        Alert.alert('Error', 'No se pudo obtener tu sesión.');
+      const employeeRowId = employee?.id ?? null;
+      if (!employeeRowId) {
+        Alert.alert('Error', 'No se encontró tu expediente de empleado. Contacta a RRHH.');
         return;
       }
 
@@ -61,11 +63,11 @@ export default function ReporteHorasExtrasScreen() {
       }
 
       const payload = {
-        employee_id: employeeId,
+        employee_id: employeeRowId,
         company_id: companyId,
         record_date: fecha,
-        hours_performed: horasNum,
-        justification: justificacion.trim(),
+        hours_reported: horasNum,
+        notes: justificacion.trim(),
         status: 'pending',
       };
 
@@ -75,9 +77,9 @@ export default function ReporteHorasExtrasScreen() {
       Alert.alert('Enviado', 'Tu reporte de horas extras ha sido registrado y está pendiente de aprobación.', [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error al guardar reporte horas extras:', e);
-      Alert.alert('Error', e?.message ?? 'No se pudo guardar el reporte.');
+      Alert.alert('Error', errorMessage(e) || 'No se pudo guardar el reporte.');
     } finally {
       setIsSubmitting(false);
     }

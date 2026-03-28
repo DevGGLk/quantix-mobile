@@ -11,20 +11,21 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
+import { checklistPointsFromRow } from '../lib/checklistReward';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 
-type Checklist = {
+type Checklist = Record<string, unknown> & {
   id: string;
   title: string;
   category?: string | null;
   reward_points?: number | null;
-  [key: string]: any;
 };
 
 export default function ChecklistsScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<RootStackNavigation>();
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { employee } = useAuth();
@@ -101,7 +102,7 @@ export default function ChecklistsScreen() {
         {!isLoading &&
           hasChecklists &&
           checklists.map((checklist) => {
-            const points = checklist.reward_points ?? 0;
+            const points = checklistPointsFromRow(checklist as Record<string, unknown>);
             return (
               <TouchableOpacity
                 key={checklist.id}

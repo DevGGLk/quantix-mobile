@@ -14,12 +14,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { errorMessage } from '../lib/errorMessage';
 
 export default function CrearAnuncioScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<RootStackNavigation>();
   const insets = useSafeAreaInsets();
   const { session, profile, employee } = useAuth();
 
@@ -95,9 +97,9 @@ export default function CrearAnuncioScreen() {
       Alert.alert('Publicado', 'El anuncio se ha publicado correctamente.', [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error al publicar anuncio:', e);
-      Alert.alert('Error', e?.message ?? 'No se pudo publicar el anuncio.');
+      Alert.alert('Error', errorMessage(e) || 'No se pudo publicar el anuncio.');
     } finally {
       setIsSubmitting(false);
     }

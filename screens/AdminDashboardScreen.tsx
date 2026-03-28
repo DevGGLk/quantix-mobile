@@ -11,16 +11,18 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { errorMessage } from '../lib/errorMessage';
 
 type SolicitudPendiente = {
   id: string;
   request_type: string | null;
   reason: string | null;
-  profiles: { first_name?: string | null; last_name?: string | null } | null;
+  employees: { first_name?: string | null; last_name?: string | null } | null;
 };
 
 type ChecklistHoy = {
@@ -54,7 +56,7 @@ function startOfTodayISO(): string {
 
 export default function AdminDashboardScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<RootStackNavigation>();
   const { session, profile, employee } = useAuth();
 
   const [tardanzasHoy, setTardanzasHoy] = useState(0);
@@ -83,12 +85,9 @@ export default function AdminDashboardScreen() {
 
       setSolicitudesPendientes((prev) => prev.filter((s) => s.id !== id));
       setPermisosPendientesCount((prev) => Math.max(0, prev - 1));
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error al gestionar solicitud:', e);
-      Alert.alert(
-        'Error',
-        e?.message ?? 'No se pudo actualizar la solicitud. Intenta de nuevo.'
-      );
+      Alert.alert('Error', errorMessage(e) || 'No se pudo actualizar la solicitud. Intenta de nuevo.');
     } finally {
       setUpdatingRequestId(null);
     }
@@ -117,7 +116,7 @@ export default function AdminDashboardScreen() {
         const buildTardanzas = () => {
           let q = supabase
             .from('time_entries')
-            .select(filterByBranch ? 'id, profiles!inner(primary_branch_id)' : '*', {
+            .select(filterByBranch ? 'id, employees!inner(branch_id)' : '*', {
               count: 'exact',
               ...(filterByBranch ? {} : { head: true }),
             })
@@ -125,7 +124,7 @@ export default function AdminDashboardScreen() {
             .eq('is_late', true)
             .gte('clock_in', startOfToday);
           if (filterByBranch) {
-            q = q.eq('profiles.primary_branch_id', primaryBranchId);
+            q = q.eq('employees.branch_id', primaryBranchId);
           }
           return q;
         };
@@ -134,7 +133,7 @@ export default function AdminDashboardScreen() {
           let q = supabase
             .from('employee_requests')
             .select(
-              'id, request_type, reason, profiles!inner(first_name, last_name, primary_branch_id)',
+              'id, request_type, reason, employees!inner(first_name, last_name, branch_id)',
               { count: 'exact' }
             )
             .eq('company_id', companyId)
@@ -142,7 +141,7 @@ export default function AdminDashboardScreen() {
             .order('created_at', { ascending: false })
             .limit(5);
           if (filterByBranch) {
-            q = q.eq('profiles.primary_branch_id', primaryBranchId);
+            q = q.eq('employees.branch_id', primaryBranchId);
           }
           return q;
         };
@@ -152,12 +151,12 @@ export default function AdminDashboardScreen() {
             .from('checklist_submissions')
             .select(
               'id, completion_percentage, checklists!inner(title, company_id)' +
-                (filterByBranch ? ', profiles!inner(primary_branch_id)' : '')
+                (filterByBranch ? ', employees!inner(branch_id)' : '')
             )
             .gte('submitted_at', startOfToday)
             .eq('checklists.company_id', companyId);
           if (filterByBranch) {
-            q = q.eq('profiles.primary_branch_id', primaryBranchId);
+            q = q.eq('employees.branch_id', primaryBranchId);
           }
           return q;
         };
@@ -165,40 +164,88 @@ export default function AdminDashboardScreen() {
         const buildHorasExtras = () => {
           let q = supabase
             .from('extra_hours_records')
-            .select(filterByBranch ? 'id, profiles!inner(primary_branch_id)' : '*', {
+            .select(filterByBranch ? 'id, employees!inner(branch_id)' : '*', {
               count: 'exact',
             })
             .eq('company_id', companyId)
             .eq('status', 'pending');
           if (filterByBranch) {
-            q = q.eq('profiles.primary_branch_id', primaryBranchId);
+            q = q.eq('employees.branch_id', primaryBranchId);
           }
           return q;
         };
 
-        const buildIncidencias = () => {
-          let q = supabase
+        const fetchIncidencias = async (): Promise<IncidenciaItem[]> => {
+          const limit = filterByBranch ? 40 : 3;
+          const { data: rows, error: incErr } = await supabase
             .from('disciplinary_records')
-            .select(
-              'id, record_type, description, created_at, profiles!inner(first_name, last_name, primary_branch_id)'
-            )
+            .select('id, type, reason, date, employee_id')
             .eq('company_id', companyId)
-            .order('created_at', { ascending: false })
-            .limit(3);
-          if (filterByBranch) {
-            q = q.eq('profiles.primary_branch_id', primaryBranchId);
+            .order('date', { ascending: false })
+            .limit(limit);
+          if (incErr) throw incErr;
+          const list = (rows ?? []) as {
+            id: string;
+            type?: string | null;
+            reason?: string | null;
+            date?: string | null;
+            employee_id?: string | null;
+          }[];
+          const empIds = [
+            ...new Set(list.map((r) => r.employee_id).filter((id): id is string => Boolean(id))),
+          ];
+          const branchByEmp = new Map<string, string | null>();
+          const nameByEmp = new Map<string, string>();
+          if (empIds.length) {
+            const { data: emps, error: empErr } = await supabase
+              .from('employees')
+              .select('id, first_name, last_name, branch_id')
+              .in('id', empIds);
+            if (empErr) throw empErr;
+            for (const e of emps ?? []) {
+              const er = e as Record<string, unknown>;
+              const id = String(er.id ?? '');
+              if (!id) continue;
+              branchByEmp.set(id, (er.branch_id as string | null) ?? null);
+              nameByEmp.set(
+                id,
+                [er.first_name, er.last_name].filter(Boolean).join(' ').trim() || 'Empleado'
+              );
+            }
           }
-          return q;
+          let filtered = list;
+          if (filterByBranch && primaryBranchId) {
+            filtered = list.filter((r) => {
+              const bid = r.employee_id ? branchByEmp.get(String(r.employee_id)) : undefined;
+              return bid === primaryBranchId;
+            });
+          }
+          return filtered.slice(0, 3).map((r) => {
+            const nm = r.employee_id ? nameByEmp.get(String(r.employee_id)) : undefined;
+            const displayName = nm ?? 'Empleado';
+            return {
+              id: String(r.id),
+              record_type: r.type ?? null,
+              description: r.reason ?? null,
+              created_at: r.date ?? null,
+              profiles: { first_name: displayName, last_name: null as string | null },
+            };
+          });
         };
 
-        const [tardanzasRes, solicitudesRes, checklistsRes, horasExtrasRes, incidenciasRes] =
-          await Promise.all([
-            buildTardanzas(),
-            buildSolicitudes(),
-            buildChecklists(),
-            buildHorasExtras(),
-            buildIncidencias(),
-          ]);
+        const [tardanzasRes, solicitudesRes, checklistsRes, horasExtrasRes] = await Promise.all([
+          buildTardanzas(),
+          buildSolicitudes(),
+          buildChecklists(),
+          buildHorasExtras(),
+        ]);
+
+        if (tardanzasRes.error) throw tardanzasRes.error;
+        if (solicitudesRes.error) throw solicitudesRes.error;
+        if (checklistsRes.error) throw checklistsRes.error;
+        if (horasExtrasRes.error) throw horasExtrasRes.error;
+
+        const incidenciasItems = await fetchIncidencias();
 
         if (!isMounted) return;
 
@@ -207,7 +254,7 @@ export default function AdminDashboardScreen() {
         setPermisosPendientesCount(solicitudesRes.count ?? 0);
         setChecklistsHoy((checklistsRes.data ?? []) as unknown as ChecklistHoy[]);
         setHorasExtrasPendientes(horasExtrasRes.count ?? 0);
-        setUltimasIncidencias((incidenciasRes.data ?? []) as IncidenciaItem[]);
+        setUltimasIncidencias(incidenciasItems);
       } catch (e) {
         console.error('Error fetch dashboard:', e);
         if (isMounted) {
@@ -241,7 +288,7 @@ export default function AdminDashboardScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Centro de Mando GGL</Text>
+          <Text style={styles.title}>Centro de Mando</Text>
           <Text style={styles.subtitle}>{formatHoy()}</Text>
         </View>
 
@@ -305,7 +352,7 @@ export default function AdminDashboardScreen() {
                 <Text style={styles.emptyText}>No hay solicitudes pendientes.</Text>
               ) : (
                 solicitudesPendientes.map((item) => {
-                  const nombre = [item.profiles?.first_name, item.profiles?.last_name]
+                  const nombre = [item.employees?.first_name, item.employees?.last_name]
                     .filter(Boolean)
                     .join(' ') || 'Empleado';
                   const tipo = item.request_type ?? 'Solicitud';

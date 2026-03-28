@@ -24,10 +24,30 @@ type Payslip = {
   status: string | null;
 };
 
+type PayrollSlipRow = {
+  period_start?: unknown;
+  period_end?: unknown;
+  gross_income?: unknown;
+  inss_laboral?: unknown;
+  ir_retention?: unknown;
+  applied_deductions?: unknown;
+  net_to_pay?: unknown;
+  status?: unknown;
+};
+
+function num(v: unknown): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (v != null && v !== '') {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
 const WATERMARK_REPEAT = 24;
 
 function WatermarkOverlay({ userName }: { userName: string }) {
-  const text = `${userName} - CONFIDENCIAL GGL`;
+  const text = `${userName} - CONFIDENCIAL QuantixHR`;
   return (
     <View style={watermarkStyles.container} pointerEvents="none">
       <View style={watermarkStyles.wrap}>
@@ -84,14 +104,19 @@ export default function PlanillaScreen() {
       try {
         const userId = session?.user?.id ?? null;
         if (!userId) {
-          if (isMounted) setCedulaOId('—');
+          if (isMounted) {
+            setCedulaOId('—');
+            setNombre('');
+            setApellido('');
+          }
           return;
         }
 
-        setCedulaOId(`ID ${userId.slice(-8)}`);
-
-        // Enterprise: nombres y company_id salen de employees
+        // Documento / código desde expediente (`national_id`, `employee_code`), no desde Auth.
         if (isMounted) {
+          const nid = employee?.national_id?.trim() ?? '';
+          const code = employee?.employee_code?.trim() ?? '';
+          setCedulaOId(nid.length > 0 ? nid : code.length > 0 ? code : '—');
           setNombre(employee?.first_name ?? '');
           setApellido(employee?.last_name ?? '');
         }
@@ -103,12 +128,21 @@ export default function PlanillaScreen() {
           return;
         }
 
+        const empId = employee?.id ?? null;
+        if (!empId) {
+          if (isMounted) {
+            setPayslip(null);
+            setHasPayslips(false);
+          }
+          return;
+        }
+
         const { data: payslipRow, error: payslipError } = await supabase
           .from('payroll_slips')
           .select(
             'period_start, period_end, gross_income, inss_laboral, ir_retention, applied_deductions, net_to_pay, status'
           )
-          .eq('profile_id', userId)
+          .eq('employee_id', empId)
           .eq('company_id', companyId)
           .order('period_start', { ascending: false })
           .limit(1)
@@ -126,16 +160,16 @@ export default function PlanillaScreen() {
           }
         } else if (isMounted) {
           if (payslipRow) {
-            const row = payslipRow as any;
+            const row = payslipRow as PayrollSlipRow;
             setPayslip({
-              period_start: String(row.period_start),
-              period_end: String(row.period_end),
-              gross_income: Number(row.gross_income) || 0,
-              inss_laboral: Number(row.inss_laboral) || 0,
-              ir_retention: Number(row.ir_retention) || 0,
-              applied_deductions: Number(row.applied_deductions) || 0,
-              net_to_pay: Number(row.net_to_pay) || 0,
-              status: (row.status as string | null) ?? null,
+              period_start: String(row.period_start ?? ''),
+              period_end: String(row.period_end ?? ''),
+              gross_income: num(row.gross_income),
+              inss_laboral: num(row.inss_laboral),
+              ir_retention: num(row.ir_retention),
+              applied_deductions: num(row.applied_deductions),
+              net_to_pay: num(row.net_to_pay),
+              status: typeof row.status === 'string' ? row.status : null,
             });
             setHasPayslips(true);
           } else {
@@ -163,7 +197,15 @@ export default function PlanillaScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, employee?.company_id, employee?.first_name, employee?.last_name]);
+  }, [
+    session?.user?.id,
+    employee?.id,
+    employee?.company_id,
+    employee?.first_name,
+    employee?.last_name,
+    employee?.national_id,
+    employee?.employee_code,
+  ]);
 
   const displayName = [nombre, apellido].filter(Boolean).join(' ') || 'Empleado';
   const watermarkName = displayName;

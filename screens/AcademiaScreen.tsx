@@ -10,9 +10,12 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import type { GamificationSettingsRow } from '../lib/gamificationRows';
+import { errorMessage } from '../lib/errorMessage';
 
 type Course = {
   id: string;
@@ -27,6 +30,7 @@ export default function AcademiaScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [completandoId, setCompletandoId] = useState<string | null>(null);
+  const [openingCourseId, setOpeningCourseId] = useState<string | null>(null);
   const [currencyName, setCurrencyName] = useState<string>('Coins');
   const [currencySymbol, setCurrencySymbol] = useState<string>('🪙');
 
@@ -59,8 +63,9 @@ export default function AcademiaScreen() {
 
           if (settingsError) throw settingsError;
 
-          const nextName = String((settings as any)?.currency_name ?? '').trim();
-          const nextSymbol = String((settings as any)?.symbol ?? '').trim();
+          const srow = settings as GamificationSettingsRow | null;
+          const nextName = String(srow?.currency_name ?? '').trim();
+          const nextSymbol = String(srow?.symbol ?? '').trim();
 
           if (isMounted) {
             setCurrencyName(nextName || 'Coins');
@@ -88,15 +93,15 @@ export default function AcademiaScreen() {
         }
 
         if (isMounted) {
-          setEmployeeId(userId);
-          const mapped: Course[] = (data ?? []).map((row: any) => ({
-            id: String(row.id),
-            title: (row.title as string) ?? 'Curso',
-            description: (row.description as string | null) ?? null,
+          setEmployeeId(employee?.id ?? null);
+          const mapped: Course[] = (data ?? []).map((row: Record<string, unknown>) => ({
+            id: String(row.id ?? ''),
+            title: typeof row.title === 'string' ? row.title : 'Curso',
+            description: typeof row.description === 'string' ? row.description : null,
             reward_points:
-              (row.reward_points as number | null) ??
-              (row.points as number | null) ??
-              (row.ggl_points as number | null) ??
+              (typeof row.points_reward === 'number' ? row.points_reward : null) ??
+              (typeof row.reward_points === 'number' ? row.reward_points : null) ??
+              (typeof row.points === 'number' ? row.points : null) ??
               null,
           }));
           setCourses(mapped);
@@ -118,10 +123,56 @@ export default function AcademiaScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, employee?.company_id]);
+  }, [session?.user?.id, employee?.company_id, employee?.id]);
 
-  const handleStartCourse = (course: Course) => {
-    Alert.alert('Cargando módulo...', 'El reproductor de video se abrirá pronto');
+  const handleStartCourse = async (course: Course) => {
+    if (openingCourseId) return;
+    setOpeningCourseId(course.id);
+    try {
+      const { data: firstModule, error: modErr } = await supabase
+        .from('course_modules')
+        .select('id')
+        .eq('course_id', course.id)
+        .order('order_index', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (modErr) throw modErr;
+      const moduleId = (firstModule as { id?: string } | null)?.id;
+      if (!moduleId) {
+        Alert.alert(
+          'Contenido en preparación',
+          'Este curso aún no tiene módulos publicados. Contacta a RRHH.'
+        );
+        return;
+      }
+
+      const { data: lesson, error: lesErr } = await supabase
+        .from('course_lessons')
+        .select('video_url, pdf_url, title')
+        .eq('module_id', moduleId)
+        .order('order_index', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (lesErr) throw lesErr;
+      const row = lesson as { video_url?: string | null; pdf_url?: string | null } | null;
+      const url = (row?.video_url || row?.pdf_url || '').trim();
+      if (!url) {
+        Alert.alert(
+          'Sin enlace de estudio',
+          'El primer módulo no tiene vídeo ni PDF asignado. Contacta a RRHH.'
+        );
+        return;
+      }
+
+      await WebBrowser.openBrowserAsync(url, { enableBarCollapsing: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo abrir el curso.';
+      Alert.alert('Error', msg);
+    } finally {
+      setOpeningCourseId(null);
+    }
   };
 
   const handleCompletarCurso = async (curso: Course) => {
@@ -154,42 +205,53 @@ export default function AcademiaScreen() {
         return;
       }
 
-      await supabase.from('employee_course_progress').upsert(
-        {
-          employee_id: employeeId,
-          course_id: curso.id,
-          is_completed: true,
-        },
-        { onConflict: 'employee_id,course_id' }
-      );
+      const { error: upsertProgressErr } = await supabase
+        .from('employee_course_progress')
+        .upsert(
+          {
+            employee_id: employeeId,
+            course_id: curso.id,
+            is_completed: true,
+          },
+          { onConflict: 'employee_id,course_id' }
+        );
+      if (upsertProgressErr) throw upsertProgressErr;
 
-      const { data: balanceRow } = await supabase
+      const { data: balanceRow, error: balanceReadErr } = await supabase
         .from('gamification_balances')
         .select('balance')
         .eq('employee_id', employeeId)
         .maybeSingle();
+      if (balanceReadErr) throw balanceReadErr;
 
       const currentBalance = (balanceRow as { balance?: number } | null)?.balance ?? 0;
       const newBalance = currentBalance + points;
 
-      await supabase.from('gamification_balances').upsert(
-        { employee_id: employeeId, balance: newBalance },
-        { onConflict: 'employee_id' }
-      );
+      const { error: upsertBalErr } = await supabase
+        .from('gamification_balances')
+        .upsert(
+          { employee_id: employeeId, balance: newBalance },
+          { onConflict: 'employee_id' }
+        );
+      if (upsertBalErr) throw upsertBalErr;
 
-      await supabase.from('gamification_transactions').insert({
+      const { error: txInsertErr } = await supabase.from('gamification_transactions').insert({
         employee_id: employeeId,
         description: `Curso completado: ${titulo}`,
         amount: points,
       });
+      if (txInsertErr) throw txInsertErr;
 
       Alert.alert(
         '¡Felicidades!',
         `Has completado el curso y ganado +${points} ${currencyName} ${currencySymbol}`
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error al completar curso:', e);
-      Alert.alert('Error', e?.message ?? 'No se pudo registrar la finalización del curso.');
+      Alert.alert(
+        'Error',
+        errorMessage(e) || 'No se pudo registrar la finalización del curso.'
+      );
     } finally {
       setCompletandoId(null);
     }
@@ -245,11 +307,17 @@ export default function AcademiaScreen() {
                 )}
 
                 <TouchableOpacity
-                  style={styles.startButton}
+                  style={[
+                    styles.startButton,
+                    openingCourseId === course.id && styles.startButtonDisabled,
+                  ]}
                   activeOpacity={0.9}
-                  onPress={() => handleStartCourse(course)}
+                  onPress={() => void handleStartCourse(course)}
+                  disabled={openingCourseId === course.id}
                 >
-                  <Text style={styles.startButtonText}>▶ Iniciar Curso</Text>
+                  <Text style={styles.startButtonText}>
+                    {openingCourseId === course.id ? 'Abriendo…' : '▶ Iniciar Curso'}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
@@ -373,6 +441,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  startButtonDisabled: {
+    opacity: 0.65,
   },
   startButtonText: {
     fontSize: 14,

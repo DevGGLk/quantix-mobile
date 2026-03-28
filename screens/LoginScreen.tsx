@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { getPasswordRecoveryRedirectUrl } from '../lib/authRedirect';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 
@@ -21,6 +22,7 @@ type LoginScreenProps = {
 };
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
+  const passwordRef = useRef<TextInput>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -72,7 +74,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setIsRecoveryLoading(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
-        redirectTo: 'https://quantixhr.com/actualizar-password',
+        redirectTo: getPasswordRecoveryRedirectUrl(),
       });
       if (error) throw error;
 
@@ -135,9 +137,13 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             autoCapitalize="none"
             autoCorrect={false}
             editable={!isLoading}
+            returnKeyType="next"
+            blurOnSubmit={false}
+            onSubmitEditing={() => passwordRef.current?.focus()}
           />
 
           <TextInput
+            ref={passwordRef}
             style={styles.input}
             placeholder="Contraseña"
             placeholderTextColor="#94a3b8"
@@ -145,6 +151,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             onChangeText={setPassword}
             secureTextEntry
             editable={!isLoading}
+            returnKeyType="go"
+            onSubmitEditing={() => {
+              if (!isLoading) void handleLogin();
+            }}
           />
 
           <TouchableOpacity

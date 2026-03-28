@@ -46,10 +46,10 @@ export default function ReglamentoScreen() {
 
         if (isMounted) {
           setChapters(
-            (data ?? []).map((row: any) => ({
+            (data ?? []).map((row: Record<string, unknown>) => ({
               id: String(row.id ?? ''),
-              title: row.title ?? '',
-              content: row.content ?? '',
+              title: typeof row.title === 'string' ? row.title : '',
+              content: typeof row.content === 'string' ? row.content : '',
             }))
           );
         }

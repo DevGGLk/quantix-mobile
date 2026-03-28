@@ -14,10 +14,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { errorMessage } from '../lib/errorMessage';
 
 const CATEGORIAS = [
   { id: 'mejora_operativa', label: 'Mejora Operativa' },
@@ -27,7 +29,7 @@ const CATEGORIAS = [
 ] as const;
 
 export default function SugerenciasScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<RootStackNavigation>();
   const insets = useSafeAreaInsets();
   const { session, employee } = useAuth();
 
@@ -47,6 +49,7 @@ export default function SugerenciasScreen() {
       setIsSubmitting(true);
 
       const userId = session?.user?.id ?? null;
+      const employeeRowId = employee?.id ?? null;
       if (!userId) {
         Alert.alert('Error', 'No se pudo obtener tu sesión.');
         return;
@@ -58,12 +61,17 @@ export default function SugerenciasScreen() {
         return;
       }
 
+      if (!isAnonymous && !employeeRowId) {
+        Alert.alert('Error', 'No se encontró tu expediente de empleado. Contacta a RRHH.');
+        return;
+      }
+
       const payload = {
         company_id: companyId,
         category,
         message: trimmed,
         is_anonymous: isAnonymous,
-        employee_id: isAnonymous ? null : userId,
+        employee_id: isAnonymous ? null : employeeRowId,
       };
 
       const { error } = await supabase.from('suggestions').insert(payload);
@@ -74,9 +82,9 @@ export default function SugerenciasScreen() {
         '¡Gracias por tu aporte! Gerencia revisará tu idea pronto.',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error al enviar sugerencia:', e);
-      Alert.alert('Error', e?.message ?? 'No se pudo enviar la sugerencia.');
+      Alert.alert('Error', errorMessage(e) || 'No se pudo enviar la sugerencia.');
     } finally {
       setIsSubmitting(false);
     }

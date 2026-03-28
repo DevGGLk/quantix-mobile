@@ -1,12 +1,13 @@
 import React, { useEffect, useCallback, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-
+import * as Sentry from '@sentry/react-native';
 import { theme } from './lib/theme';
+import { decideOnboardingGate } from './lib/onboardingGate';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
 import OnboardingScreen from './screens/OnboardingScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
@@ -32,6 +33,10 @@ import ReporteHorasExtrasScreen from './screens/ReporteHorasExtrasScreen';
 import ReportarIncidenciaScreen from './screens/ReportarIncidenciaScreen';
 import CrearAnuncioScreen from './screens/CrearAnuncioScreen';
 import MiEmpresaScreen from './screens/MiEmpresaScreen';
+import type { MainTabParamList, RootStackParamList } from './types/navigation';
+import { initSentryFromEnv } from './lib/sentryInit';
+
+initSentryFromEnv();
 
 type OnboardingGateState = 'loading' | 'onboarding' | 'app';
 
@@ -39,8 +44,8 @@ type OnboardingGateState = 'loading' | 'onboarding' | 'app';
 
 // ─── Navegación ─────────────────────────────────────────────────────────────
 
-const Tab = createBottomTabNavigator();
-const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator<MainTabParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const TAB_ICONS = {
   Home: { active: 'home', inactive: 'home-outline' },
@@ -52,6 +57,34 @@ const TAB_ICONS = {
 // Booleanos estrictos para opciones de navegación (evitar string en Android)
 const HEADER_SHOWN: boolean = false;
 const TAB_BAR_SHOW_LABEL: boolean = true;
+
+/** Aviso global si falla la carga de perfil/expediente (debe ir bajo SafeAreaProvider). */
+function AuthRecordsBannerBar() {
+  const insets = useSafeAreaInsets();
+  const { recordsError, refresh } = useAuth();
+
+  if (!recordsError) return null;
+
+  return (
+    <View
+      style={[
+        authBannerStyles.wrap,
+        { paddingTop: Math.max(insets.top, 8), paddingLeft: 12 + insets.left, paddingRight: 12 + insets.right },
+      ]}
+    >
+      <Text style={authBannerStyles.text}>{recordsError}</Text>
+      <TouchableOpacity
+        style={authBannerStyles.retryBtn}
+        onPress={() => void refresh()}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Reintentar carga de perfil"
+      >
+        <Text style={authBannerStyles.retryLabel}>Reintentar</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 function MainTabs() {
   return (
@@ -125,12 +158,17 @@ function AppInner() {
         return;
       }
 
+      // Evita decisión con profile/employee aún en carga (red lenta).
+      if (isLoading) {
+        setOnboardingGate('loading');
+        return;
+      }
+
       setOnboardingGate('loading');
 
-      // Enterprise: el company_id operativo vive en employees.
-      // Si no hay employee record (p.ej. SuperAdmin), no bloqueamos.
       const companyId = employee?.company_id ?? null;
       const onboardingCompleted = Boolean(profile?.onboarding_completed);
+
       if (!companyId) {
         if (!cancelled) setOnboardingGate('app');
         return;
@@ -145,20 +183,22 @@ function AppInner() {
 
         if (cancelled) return;
 
-        if (companyError || !company) {
-          setOnboardingGate('app');
-          return;
-        }
+        const onboardingEnabled =
+          company && !companyError
+            ? Boolean(
+                (company as { is_onboarding_enabled?: boolean | null }).is_onboarding_enabled
+              )
+            : null;
 
-        const onboardingEnabled = Boolean(
-          (company as { is_onboarding_enabled?: boolean | null }).is_onboarding_enabled
-        );
+        const next = decideOnboardingGate({
+          hasSession: true,
+          employeeCompanyId: companyId,
+          onboardingCompleted,
+          companyOnboardingEnabled: onboardingEnabled,
+          companyFetchFailed: Boolean(companyError || !company),
+        });
 
-        if (onboardingEnabled && !onboardingCompleted) {
-          setOnboardingGate('onboarding');
-        } else {
-          setOnboardingGate('app');
-        }
+        setOnboardingGate(next);
       } catch {
         if (!cancelled) setOnboardingGate('app');
       }
@@ -168,7 +208,7 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id, employee?.company_id, profile?.onboarding_completed]);
+  }, [session?.user?.id, isLoading, employee?.company_id, profile?.onboarding_completed]);
 
   if (isLoading) {
     return (
@@ -203,6 +243,7 @@ function AppInner() {
   if (onboardingGate === 'onboarding') {
     return (
       <SafeAreaProvider>
+        <AuthRecordsBannerBar />
         <OnboardingGateContext.Provider value={onboardingGateValue}>
           <OnboardingScreen />
         </OnboardingGateContext.Provider>
@@ -212,8 +253,10 @@ function AppInner() {
 
   return (
     <SafeAreaProvider>
+      <AuthRecordsBannerBar />
       <OnboardingGateContext.Provider value={onboardingGateValue}>
-        <NavigationContainer>
+        <View style={{ flex: 1, backgroundColor: theme.background }}>
+          <NavigationContainer>
           <Stack.Navigator>
             <Stack.Screen
               name="MainTabs"
@@ -273,7 +316,7 @@ function AppInner() {
             <Stack.Screen
               name="AdminDashboard"
               component={AdminDashboardScreen}
-              options={{ title: 'Centro de Mando GGL' }}
+              options={{ title: 'Centro de Mando' }}
             />
             <Stack.Screen
               name="MapaEmpleados"
@@ -302,18 +345,21 @@ function AppInner() {
             />
           </Stack.Navigator>
         </NavigationContainer>
+        </View>
       </OnboardingGateContext.Provider>
     </SafeAreaProvider>
   );
 }
 
-export default function App() {
+function App() {
   return (
     <AuthProvider>
       <AppInner />
     </AuthProvider>
   );
 }
+
+export default Sentry.wrap(App);
 
 // ─── Estilos (carga de auth) ─────────────────────────────────────────────────
 
@@ -328,6 +374,36 @@ const authLoadingStyles = StyleSheet.create({
   text: {
     fontSize: 16,
     color: theme.textSecondary,
+  },
+});
+
+const authBannerStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingBottom: 10,
+    paddingRight: 12,
+    backgroundColor: '#FEF3C7',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F59E0B',
+  },
+  text: {
+    flex: 1,
+    fontSize: 13,
+    color: '#92400E',
+    fontWeight: '600',
+  },
+  retryBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: theme.primary,
+    borderRadius: 8,
+  },
+  retryLabel: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
 

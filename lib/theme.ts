@@ -15,6 +15,11 @@ export const theme = {
   border: '#e2e8f0',
   /** Gamificación: fondo secundario terracota pálido/rosa (#f3a8b1) */
   subtleBackground: '#f3a8b1',
+  /**
+   * Fondo de pantallas tipo tienda / listado de recompensas (contraste suave con `background`).
+   * Evita paletas duplicadas en el código de la pantalla.
+   */
+  storeBackground: '#F3F4F6',
 } as const;
 
 export type Theme = typeof theme;

@@ -13,9 +13,11 @@ import {
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { errorMessage } from '../lib/errorMessage';
 
 type LeaveType = 'Vacaciones' | 'Permiso por Enfermedad' | 'Asunto Personal';
 
@@ -33,7 +35,7 @@ function mapLeaveTypeToRequestType(type: LeaveType): 'vacation' | 'permission' |
 
 export default function NuevaSolicitudScreen() {
   const { session, employee } = useAuth();
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<RootStackNavigation>();
 
   const [selectedType, setSelectedType] = useState<LeaveType>('Vacaciones');
   const [startDateIso, setStartDateIso] = useState<string>('');
@@ -86,23 +88,24 @@ export default function NuevaSolicitudScreen() {
       setIsSubmitting(true);
 
       const userId = session?.user?.id ?? null;
+      const employeeRowId = employee?.id ?? null;
       if (!userId) {
         Alert.alert('Sesión inválida', 'No se pudo obtener la sesión del usuario.');
         return;
       }
 
       const companyId = employee?.company_id ?? null;
-      if (!companyId) {
+      if (!companyId || !employeeRowId) {
         Alert.alert(
           'Perfil incompleto',
-          'No se encontró una empresa asociada a tu expediente de empleado. Contacta a RRHH.'
+          'No se encontró expediente o empresa asociada. Contacta a RRHH.'
         );
         return;
       }
 
       const payload = {
         company_id: companyId,
-        employee_id: userId,
+        employee_id: employeeRowId,
         request_type: mapLeaveTypeToRequestType(selectedType),
         start_date: startDateIso,
         end_date: endDateIso,
@@ -115,8 +118,8 @@ export default function NuevaSolicitudScreen() {
 
       Alert.alert('Éxito', 'Tu solicitud fue enviada a RRHH');
       navigation.goBack();
-    } catch (error: any) {
-      Alert.alert('Error', error?.message);
+    } catch (error: unknown) {
+      Alert.alert('Error', errorMessage(error));
     } finally {
       setIsSubmitting(false);
     }

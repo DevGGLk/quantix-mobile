@@ -1,6 +1,7 @@
 /**
- * Tipos mínimos para el nuevo modelo Enterprise.
- * Nota: este archivo no es generado automáticamente; se mantiene a mano.
+ * Tipos mínimos usados por la app hasta ejecutar `npm run gen:types` con `supabase link`
+ * (el script escribe el archivo solo si la generación tiene éxito; no vacía el archivo en error).
+ * Sin link: `npx supabase gen types typescript --project-id <ref> > types/database.types.ts`
  */
 
 export type Database = {

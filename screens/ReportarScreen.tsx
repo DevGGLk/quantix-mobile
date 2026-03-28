@@ -13,30 +13,30 @@ import {
   Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { errorMessage } from '../lib/errorMessage';
+import {
+  EMPLOYEE_INCIDENT_UI_OPTIONS,
+  EMPLOYEE_REPORT_SEVERITY_OPTIONS,
+  mapEmployeeIncidentToDisciplinaryType,
+  type EmployeeIncidentUiId,
+  type EmployeeReportSeverityId,
+} from '../lib/disciplinaryEmployeeReport';
 
-type IncidentType =
-  | 'Conducta Inapropiada'
-  | 'Llegada Tardía'
-  | 'Problema de Seguridad'
-  | 'Otro';
+type EmployeeCollaboratorRow = {
+  id?: unknown;
+  user_id?: unknown;
+  first_name?: unknown;
+  last_name?: unknown;
+};
 
-type Severity = 'leve' | 'moderada' | 'grave';
-
-function mapIncidentType(type: IncidentType): 'tardanza' | 'falta_respeto' | 'danos' {
-  switch (type) {
-    case 'Llegada Tardía':
-      return 'tardanza';
-    case 'Conducta Inapropiada':
-      return 'falta_respeto';
-    case 'Problema de Seguridad':
-    case 'Otro':
-    default:
-      return 'danos';
-  }
-}
+type ProfileRoleRow = {
+  id?: unknown;
+  role?: unknown;
+};
 
 interface Collaborator {
   id: string;
@@ -46,15 +46,17 @@ interface Collaborator {
 }
 
 export default function ReportarScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<RootStackNavigation>();
   const { session, employee } = useAuth();
 
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [isLoadingCollabs, setIsLoadingCollabs] = useState(true);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
 
-  const [incidentType, setIncidentType] = useState<IncidentType>('Conducta Inapropiada');
-  const [severity, setSeverity] = useState<Severity>('leve');
+  const [incidentType, setIncidentType] = useState<EmployeeIncidentUiId>(
+    EMPLOYEE_INCIDENT_UI_OPTIONS[0].id
+  );
+  const [severity, setSeverity] = useState<EmployeeReportSeverityId>('leve');
   const [details, setDetails] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -91,40 +93,50 @@ export default function ReportarScreen() {
 
         const { data: empRows, error: empErr } = await supabase
           .from('employees')
-          .select('user_id, first_name, last_name')
+          .select('id, user_id, first_name, last_name')
           .eq('company_id', companyId)
           .neq('user_id', viewerUserId);
 
         if (empErr) throw empErr;
 
-        const ids = (empRows ?? [])
-          .map((r: any) => r?.user_id)
-          .filter(Boolean)
-          .map((x: any) => String(x));
+        const empList = (empRows ?? []) as EmployeeCollaboratorRow[];
+        const profileIds = empList
+          .map((r) => r.user_id)
+          .filter((x): x is string => typeof x === 'string' && x.length > 0);
 
-        const rolesById = new Map<string, string | null>();
-        if (ids.length) {
+        const rolesByUserId = new Map<string, string | null>();
+        if (profileIds.length) {
           const { data: profRows, error: profErr } = await supabase
             .from('profiles')
             .select('id, role')
-            .in('id', ids);
+            .in('id', profileIds);
           if (!profErr) {
-            for (const r of (profRows ?? []) as any[]) {
-              const id = String(r?.id ?? '');
-              if (id) rolesById.set(id, (r?.role as string | null) ?? null);
+            for (const r of (profRows ?? []) as ProfileRoleRow[]) {
+              const id = typeof r.id === 'string' ? r.id : '';
+              if (id) {
+                const role = typeof r.role === 'string' ? r.role : null;
+                rolesByUserId.set(id, role);
+              }
             }
           } else {
             console.warn('ReportarScreen roles:', profErr.message);
+            if (isMounted) {
+              Alert.alert(
+                'Aviso',
+                'Se cargó el listado de compañeros, pero no pudimos obtener sus cargos (conexión o permisos). Puedes continuar con el reporte.'
+              );
+            }
           }
         }
 
-        const list: Collaborator[] = (empRows ?? []).map((r: any) => {
-          const id = String(r?.user_id ?? '');
+        const list: Collaborator[] = empList.map((r) => {
+          const rowId = typeof r.id === 'string' ? r.id : String(r.id ?? '');
+          const uid = typeof r.user_id === 'string' ? r.user_id : String(r.user_id ?? '');
           return {
-            id,
-            first_name: (r?.first_name as string | null) ?? null,
-            last_name: (r?.last_name as string | null) ?? null,
-            role: rolesById.get(id) ?? null,
+            id: rowId,
+            first_name: typeof r.first_name === 'string' ? r.first_name : null,
+            last_name: typeof r.last_name === 'string' ? r.last_name : null,
+            role: rolesByUserId.get(uid) ?? null,
           };
         });
 
@@ -177,18 +189,17 @@ export default function ReportarScreen() {
     try {
       setIsSubmitting(true);
 
-      const incident_date = new Date().toISOString();
+      const date = new Date().toISOString();
       const payload = {
         company_id: currentCompanyId,
         employee_id: selectedEmployeeId,
-        reported_by: currentEmployeeId,
-        incident_date,
-        incident_type: mapIncidentType(incidentType),
-        description: details.trim(),
         severity,
+        reason: details.trim(),
+        date,
+        type: mapEmployeeIncidentToDisciplinaryType(incidentType),
       };
 
-      if (!payload.reported_by) {
+      if (!currentEmployeeId) {
         Alert.alert('Sesión inválida', 'No se pudo identificar al usuario que reporta.');
         return;
       }
@@ -203,14 +214,14 @@ export default function ReportarScreen() {
         'Tu reporte confidencial ha sido enviado al equipo de RRHH.'
       );
       navigation.goBack();
-    } catch (error: any) {
-      Alert.alert('Error', error?.message);
+    } catch (error: unknown) {
+      Alert.alert('Error', errorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const renderIncidentTypeButton = (type: IncidentType) => {
+  const renderIncidentTypeButton = (type: EmployeeIncidentUiId, label: string) => {
     const isActive = incidentType === type;
     return (
       <TouchableOpacity
@@ -220,13 +231,13 @@ export default function ReportarScreen() {
         onPress={() => setIncidentType(type)}
       >
         <Text style={[styles.typeButtonText, isActive && styles.typeButtonTextActive]}>
-          {type}
+          {label}
         </Text>
       </TouchableOpacity>
     );
   };
 
-  const renderSeverityButton = (value: Severity, label: string) => {
+  const renderSeverityButton = (value: EmployeeReportSeverityId, label: string) => {
     const isActive = severity === value;
     return (
       <TouchableOpacity
@@ -294,19 +305,18 @@ export default function ReportarScreen() {
         <View style={styles.section}>
           <Text style={styles.label}>Tipo de incidencia</Text>
           <View style={styles.typesRow}>
-            {renderIncidentTypeButton('Conducta Inapropiada')}
-            {renderIncidentTypeButton('Llegada Tardía')}
-            {renderIncidentTypeButton('Problema de Seguridad')}
-            {renderIncidentTypeButton('Otro')}
+            {EMPLOYEE_INCIDENT_UI_OPTIONS.map((opt) =>
+              renderIncidentTypeButton(opt.id, opt.label)
+            )}
           </View>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.label}>Severidad</Text>
           <View style={styles.typesRow}>
-            {renderSeverityButton('leve', 'Leve')}
-            {renderSeverityButton('moderada', 'Moderada')}
-            {renderSeverityButton('grave', 'Grave')}
+            {EMPLOYEE_REPORT_SEVERITY_OPTIONS.map((opt) =>
+              renderSeverityButton(opt.id, opt.label)
+            )}
           </View>
         </View>
 
