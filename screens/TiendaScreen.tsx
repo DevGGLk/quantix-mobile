@@ -15,6 +15,7 @@ import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 import type { GamificationBalanceRow, GamificationSettingsRow } from '../lib/gamificationRows';
 import { errorMessage } from '../lib/errorMessage';
+import { formatGamificationQuantity, gamificationDisplayName } from '../lib/gamificationCurrencyLabel';
 
 type Reward = {
   id: string;
@@ -32,7 +33,7 @@ export default function TiendaScreen() {
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRedeemingId, setIsRedeemingId] = useState<string | null>(null);
-  const [currencyName, setCurrencyName] = useState<string>('Coins');
+  const [currencyName, setCurrencyName] = useState<string>('Puntos');
   const [currencySymbol, setCurrencySymbol] = useState<string>('🪙');
 
   useEffect(() => {
@@ -111,12 +112,12 @@ export default function TiendaScreen() {
           const nextSymbol = String(srow?.symbol ?? '').trim();
 
           if (isMounted) {
-            setCurrencyName(nextName || 'Coins');
+            setCurrencyName(nextName || 'Puntos');
             setCurrencySymbol(nextSymbol || '🪙');
           }
         } catch (_settingsErr) {
           if (isMounted) {
-            setCurrencyName('Coins');
+            setCurrencyName('Puntos');
             setCurrencySymbol('🪙');
           }
           Alert.alert(
@@ -187,7 +188,7 @@ export default function TiendaScreen() {
 
     Alert.alert(
       'Confirmar canje',
-      `¿Canjear ${premio.name} por ${premio.cost_points} pts?`,
+      `¿Canjear ${premio.name} por ${formatGamificationQuantity(premio.cost_points, currencyName, currencySymbol)}?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -254,7 +255,7 @@ export default function TiendaScreen() {
           <Text style={styles.title}>VIP ZONE RECOMPENSAS</Text>
 
           <View style={styles.balanceCard}>
-            <Text style={styles.balanceLabel}>Tus {currencyName}</Text>
+            <Text style={styles.balanceLabel}>Tus {gamificationDisplayName(currencyName)}</Text>
             {isLoading ? (
               <ActivityIndicator color={theme.warning} />
             ) : (
@@ -262,7 +263,9 @@ export default function TiendaScreen() {
                 {coins} {currencySymbol}
               </Text>
             )}
-            <Text style={styles.balanceHint}>Canjea tus puntos por beneficios exclusivos</Text>
+            <Text style={styles.balanceHint}>
+              Canjea tus {gamificationDisplayName(currencyName).toLowerCase()} por beneficios exclusivos
+            </Text>
           </View>
 
           {isLoading && (
@@ -284,7 +287,10 @@ export default function TiendaScreen() {
                 <View key={reward.id} style={styles.card}>
                   <Text style={styles.cardTitle}>{reward.name}</Text>
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>Costo: {reward.cost_points} pts</Text>
+                    <Text style={styles.badgeText}>
+                      Costo:{' '}
+                      {formatGamificationQuantity(reward.cost_points, currencyName, currencySymbol)}
+                    </Text>
                   </View>
                   {typeof reward.stock === 'number' && (
                     <Text style={styles.stockText}>Stock: {reward.stock}</Text>

@@ -21,6 +21,11 @@ import { supabase } from '../lib/supabase';
 import { checklistGivesPoints, checklistPointsFromRow } from '../lib/checklistReward';
 import { useAuth } from '../lib/AuthContext';
 import type { GamificationBalanceRow, GamificationSettingsRow } from '../lib/gamificationRows';
+import {
+  formatGamificationQuantity,
+  formatGamificationTransactionAmount,
+  gamificationDisplayName,
+} from '../lib/gamificationCurrencyLabel';
 import { BadgeCatalogueIcon } from '../utils/badgeIcons';
 
 type LeaderboardBalanceRow = {
@@ -45,6 +50,7 @@ type EmployeeBadgeRow = {
   id?: string | null;
   badge_id?: string | null;
   employee_id?: string | null;
+  points_awarded?: number | string | null;
   badge_catalogue?: BadgeCatalogueEmbed | BadgeCatalogueEmbed[] | null;
 };
 
@@ -82,6 +88,7 @@ type InsigniaItem = {
   description: string | null;
   iconKey: string;
   iconColor: string | null;
+  pointsAwarded: number | null;
 };
 type BoostItem = { id: string; title: string; description: string | null };
 
@@ -118,7 +125,7 @@ export default function PerfilScreen() {
     puntos: 0,
   });
   const [companyId, setCompanyId] = useState<string | null>(null);
-  const [currencyName, setCurrencyName] = useState<string>('Coins');
+  const [currencyName, setCurrencyName] = useState<string>('Puntos');
   const [currencySymbol, setCurrencySymbol] = useState<string>('🪙');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -253,7 +260,7 @@ export default function PerfilScreen() {
             .from('employee_badges')
             .select('*, badge_catalogue(name, description, icon_name, icon_color)')
             .eq('employee_id', empId)
-            .order('created_at', { ascending: false });
+            .order('id', { ascending: false });
 
           if (error) throw error;
 
@@ -261,6 +268,13 @@ export default function PerfilScreen() {
             ? (data as EmployeeBadgeRow[]).map((b) => {
                 const raw = b.badge_catalogue;
                 const cat = Array.isArray(raw) ? raw[0] : raw;
+                const ptsRaw = b.points_awarded;
+                const ptsNum =
+                  typeof ptsRaw === 'number'
+                    ? ptsRaw
+                    : typeof ptsRaw === 'string'
+                      ? Number(ptsRaw)
+                      : NaN;
                 return {
                   id: String(b.id ?? ''),
                   name: String(cat?.name ?? 'Insignia'),
@@ -268,11 +282,12 @@ export default function PerfilScreen() {
                     typeof cat?.description === 'string' && cat.description.trim()
                       ? cat.description.trim()
                       : null,
-                  iconKey: String(cat?.icon_name ?? 'star'),
+                  iconKey: String(cat?.icon_name ?? 'Award'),
                   iconColor:
                     typeof cat?.icon_color === 'string' && cat.icon_color.trim()
                       ? cat.icon_color.trim()
                       : null,
+                  pointsAwarded: Number.isFinite(ptsNum) ? ptsNum : null,
                 };
               })
             : [];
@@ -368,16 +383,16 @@ export default function PerfilScreen() {
               const srow = settings as GamificationSettingsRow | null;
               const name = String(srow?.currency_name ?? '').trim();
               const sym = String(srow?.symbol ?? '').trim();
-              setCurrencyName(name || 'Coins');
+              setCurrencyName(name || 'Puntos');
               setCurrencySymbol(sym || '🪙');
             }
           } else if (isMounted) {
-            setCurrencyName('Coins');
+            setCurrencyName('Puntos');
             setCurrencySymbol('🪙');
           }
         } catch (_e) {
           if (isMounted) {
-            setCurrencyName('Coins');
+            setCurrencyName('Puntos');
             setCurrencySymbol('🪙');
             Alert.alert(
               'Error de Conexión',
@@ -636,13 +651,15 @@ export default function PerfilScreen() {
           <View style={styles.coinsTop}>
             <View style={styles.coinsBadge}>
               <Ionicons name="trophy" size={18} color={VIP.buttonGold} />
-              <Text style={styles.coinsBadgeText}>{currencyName || 'Coins'}</Text>
+              <Text style={styles.coinsBadgeText}>{gamificationDisplayName(currencyName)}</Text>
             </View>
             <Text style={styles.currencySymbol}>{currencySymbol || '🪙'}</Text>
           </View>
 
           <Text style={styles.coinsValue}>{perfil.puntos}</Text>
-          <Text style={styles.coinsSub}>Tus puntos VIP acumulados</Text>
+          <Text style={styles.coinsSub}>
+            Tus {gamificationDisplayName(currencyName)} VIP acumulados ({currencySymbol || '🪙'})
+          </Text>
         </View>
 
         <View style={styles.badgesRow}>
@@ -704,7 +721,9 @@ export default function PerfilScreen() {
                             )}
                           </View>
                           <Text style={styles.misionTitle} numberOfLines={2}>{m.title}</Text>
-                          <Text style={styles.misionPts}>{m.pts} pts</Text>
+                          <Text style={styles.misionPts}>
+                            {formatGamificationQuantity(m.pts, currencyName, currencySymbol)}
+                          </Text>
                         </View>
                       ))
                     )}
@@ -713,7 +732,9 @@ export default function PerfilScreen() {
               )}
               {selectedBadge === 'trophy' && (
                 <>
-                  <Text style={styles.modalTitle}>🏆 Ranking {currencyName || 'Coins'}</Text>
+                  <Text style={styles.modalTitle}>
+                    🏆 Ranking {gamificationDisplayName(currencyName)}
+                  </Text>
                   <View style={styles.leaderboardList}>
                     {isModalLoading ? (
                       <View style={styles.modalLoaderRow}>
@@ -727,7 +748,9 @@ export default function PerfilScreen() {
                         <View key={p.rank} style={styles.leaderboardRow}>
                           <Text style={styles.leaderboardRank}>#{p.rank}</Text>
                           <Text style={styles.leaderboardName} numberOfLines={1}>{p.name}</Text>
-                          <Text style={styles.leaderboardCoins}>{p.coins} pts</Text>
+                          <Text style={styles.leaderboardCoins}>
+                            {formatGamificationQuantity(p.coins, currencyName, currencySymbol)}
+                          </Text>
                         </View>
                       ))
                     )}
@@ -758,6 +781,16 @@ export default function PerfilScreen() {
                           <Text style={styles.insigniaName} numberOfLines={2}>
                             {ins.name}
                           </Text>
+                          {ins.pointsAwarded != null ? (
+                            <Text style={styles.insigniaPts}>
+                              +
+                              {formatGamificationQuantity(
+                                ins.pointsAwarded ?? 0,
+                                currencyName,
+                                currencySymbol
+                              )}
+                            </Text>
+                          ) : null}
                           {ins.description ? (
                             <Text style={styles.insigniaDesc} numberOfLines={2}>
                               {ins.description}
@@ -804,6 +837,13 @@ export default function PerfilScreen() {
         </Modal>
 
         <TouchableOpacity
+          style={styles.catalogButton}
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate('CatalogoInsignias')}
+        >
+          <Text style={styles.catalogButtonText}>CATÁLOGO DE INSIGNIAS</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={styles.storeButton}
           activeOpacity={0.9}
           onPress={() => navigation.navigate('Tienda')}
@@ -819,7 +859,9 @@ export default function PerfilScreen() {
 
         <View style={styles.historyCard}>
           {historialTransacciones.length === 0 ? (
-            <Text style={styles.historyEmpty}>Aún no tienes movimientos de puntos.</Text>
+            <Text style={styles.historyEmpty}>
+              Aún no tienes movimientos de {gamificationDisplayName(currencyName).toLowerCase()}.
+            </Text>
           ) : (
             historialTransacciones.map((item) => {
               const amount = Number(item.amount) || 0;
@@ -834,7 +876,7 @@ export default function PerfilScreen() {
                     <Text style={styles.historySub}>{dateStr}</Text>
                   </View>
                   <Text style={[styles.points, positive ? styles.pointsGreen : styles.pointsRed]}>
-                    {positive ? `+${amount}` : `${amount}`} pts
+                    {formatGamificationTransactionAmount(amount, currencyName, currencySymbol)}
                   </Text>
                 </View>
               );
@@ -1054,8 +1096,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  storeButton: {
+  catalogButton: {
     marginTop: 16,
+    backgroundColor: 'transparent',
+    borderRadius: 999,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: VIP.purpleDeep,
+  },
+  catalogButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: VIP.purpleDeep,
+  },
+  storeButton: {
+    marginTop: 12,
     backgroundColor: VIP.buttonGold,
     borderRadius: 999,
     paddingVertical: 14,
@@ -1419,6 +1476,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: VIP.textOnLight,
     textAlign: 'center',
+  },
+  insigniaPts: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: VIP.buttonGold,
+    textAlign: 'center',
+    marginTop: 4,
   },
   insigniaDesc: {
     fontSize: 10,

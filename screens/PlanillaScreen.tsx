@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,16 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { downloadAndSharePortalPayslipPdf } from '../lib/downloadPortalPayslipPdf';
 
 type Payslip = {
+  id: string;
   period_start: string;
   period_end: string;
   gross_income: number;
@@ -25,6 +28,7 @@ type Payslip = {
 };
 
 type PayrollSlipRow = {
+  id?: unknown;
   period_start?: unknown;
   period_end?: unknown;
   gross_income?: unknown;
@@ -96,6 +100,7 @@ export default function PlanillaScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [payslip, setPayslip] = useState<Payslip | null>(null);
   const [hasPayslips, setHasPayslips] = useState<boolean | null>(null);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -140,7 +145,7 @@ export default function PlanillaScreen() {
         const { data: payslipRow, error: payslipError } = await supabase
           .from('payroll_slips')
           .select(
-            'period_start, period_end, gross_income, inss_laboral, ir_retention, applied_deductions, net_to_pay, status'
+            'id, period_start, period_end, gross_income, inss_laboral, ir_retention, applied_deductions, net_to_pay, status'
           )
           .eq('employee_id', empId)
           .eq('company_id', companyId)
@@ -161,7 +166,14 @@ export default function PlanillaScreen() {
         } else if (isMounted) {
           if (payslipRow) {
             const row = payslipRow as PayrollSlipRow;
+            const slipId = String(row.id ?? '').trim();
+            if (!slipId) {
+              setPayslip(null);
+              setHasPayslips(false);
+              return;
+            }
             setPayslip({
+              id: slipId,
               period_start: String(row.period_start ?? ''),
               period_end: String(row.period_end ?? ''),
               gross_income: num(row.gross_income),
@@ -240,6 +252,24 @@ export default function PlanillaScreen() {
     (payslip?.ir_retention ?? 0) +
     (payslip?.applied_deductions ?? 0);
 
+  const handleDownloadPdf = useCallback(async () => {
+    const token = session?.access_token ?? null;
+    const slipId = payslip?.id ?? null;
+    if (!token || !slipId) {
+      Alert.alert('No disponible', 'Inicia sesión de nuevo o espera a que cargue el recibo.');
+      return;
+    }
+    setPdfDownloading(true);
+    try {
+      await downloadAndSharePortalPayslipPdf({ accessToken: token, slipId });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo generar el PDF.';
+      Alert.alert('Descarga PDF', msg);
+    } finally {
+      setPdfDownloading(false);
+    }
+  }, [session?.access_token, payslip?.id]);
+
   if (isLoading) {
     return (
       <View style={[styles.loaderContainer, { paddingTop: insets.top }]}>
@@ -275,6 +305,21 @@ export default function PlanillaScreen() {
             </View>
           ) : (
             <>
+              <TouchableOpacity
+                style={[styles.pdfButton, pdfDownloading && styles.pdfButtonDisabled]}
+                onPress={() => void handleDownloadPdf()}
+                disabled={pdfDownloading}
+                activeOpacity={0.88}
+                accessibilityRole="button"
+                accessibilityLabel="Descargar recibo oficial en PDF"
+              >
+                {pdfDownloading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.pdfButtonText}>Descargar Recibo Oficial (PDF)</Text>
+                )}
+              </TouchableOpacity>
+
               <Text style={styles.sectionTitle}>Período</Text>
               <View style={styles.row}>
                 <Text style={styles.concepto}>Período de pago</Text>
@@ -474,5 +519,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
     lineHeight: 20,
+  },
+  pdfButton: {
+    marginTop: 8,
+    marginBottom: 8,
+    backgroundColor: theme.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  pdfButtonDisabled: {
+    opacity: 0.75,
+  },
+  pdfButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

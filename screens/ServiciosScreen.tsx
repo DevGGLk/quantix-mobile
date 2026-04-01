@@ -110,6 +110,15 @@ export default function ServiciosScreen() {
           <Text style={styles.cardLabel}>Reportar Incidencia</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('MiDisciplina')}
+        >
+          <Ionicons name="reader-outline" size={32} color="#6366f1" />
+          <Text style={styles.cardLabel}>Mi Historial</Text>
+        </TouchableOpacity>
+
         {companySettings?.enable_checklists === true && (
           <TouchableOpacity
             style={styles.card}

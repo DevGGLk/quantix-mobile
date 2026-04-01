@@ -19,12 +19,14 @@ import ReglamentoScreen from './screens/ReglamentoScreen';
 import NuevaSolicitudScreen from './screens/NuevaSolicitudScreen';
 import ReportarScreen from './screens/ReportarScreen';
 import TiendaScreen from './screens/TiendaScreen';
+import CatalogoInsigniasScreen from './screens/CatalogoInsigniasScreen';
 import AcademiaScreen from './screens/AcademiaScreen';
 import PerfilScreen from './screens/PerfilScreen';
 import TurnosScreen from './screens/TurnosScreen';
 import ChecklistsScreen from './screens/ChecklistsScreen';
 import ResolverChecklistScreen from './screens/ResolverChecklistScreen';
 import PlanillaScreen from './screens/PlanillaScreen';
+import MiDisciplinaScreen from './screens/MiDisciplinaScreen';
 import SugerenciasScreen from './screens/SugerenciasScreen';
 import HorasExtrasScreen from './screens/HorasExtrasScreen';
 import AdminDashboardScreen from './screens/AdminDashboardScreen';
@@ -284,6 +286,11 @@ function AppInner() {
               options={{ title: 'Tienda de Recompensas' }}
             />
             <Stack.Screen
+              name="CatalogoInsignias"
+              component={CatalogoInsigniasScreen}
+              options={{ title: 'Catálogo de insignias' }}
+            />
+            <Stack.Screen
               name="Academia"
               component={AcademiaScreen}
               options={{ title: 'Campus Virtual' }}
@@ -302,6 +309,11 @@ function AppInner() {
               name="Planilla"
               component={PlanillaScreen}
               options={{ title: 'Mi Planilla' }}
+            />
+            <Stack.Screen
+              name="MiDisciplina"
+              component={MiDisciplinaScreen}
+              options={{ title: 'Mi historial disciplinario' }}
             />
             <Stack.Screen
               name="Sugerencias"

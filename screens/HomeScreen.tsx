@@ -204,7 +204,7 @@ function assertInsideGeofence(
 
 export default function HomeScreen() {
   const navigation = useNavigation<TabCompositeNavigation<'Home'>>();
-  const { session, profile: authProfile, employee, refresh: refreshAuth } = useAuth();
+  const { session, profile: authProfile, employee } = useAuth();
   const employeeRecordId = employee?.id ?? null;
   const [perfil, setPerfil] = useState<HomePerfil | null>(null);
   const [isLoadingPerfil, setIsLoadingPerfil] = useState(true);
@@ -248,8 +248,9 @@ export default function HomeScreen() {
         }
         registerForPushNotificationsAsync(userId);
 
-        // Refrescamos en background por si venimos de login y aún no está en memoria.
-        void refreshAuth();
+        // No llamar a `refresh()` de Auth aquí: dispara `isRecordsLoading` → `isLoading` global en
+        // App.tsx, se desmonta el navigator y Home vuelve a montar → mismo efecto → bucle infinito.
+        // El perfil/expediente ya se cargan en AuthProvider al cambiar la sesión.
 
         const cid = employee?.company_id ?? null;
         const bid = employee?.branch_id ?? null;
@@ -307,7 +308,7 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, employee?.company_id, employee?.branch_id, employee?.first_name, employee?.last_name, authProfile?.role, refreshAuth]);
+  }, [session?.user?.id, employee?.company_id, employee?.branch_id, employee?.first_name, employee?.last_name, authProfile?.role]);
 
   const refreshPauseState = useCallback(async (entryId: string | null) => {
     if (!entryId) {

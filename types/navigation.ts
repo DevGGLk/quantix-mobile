@@ -25,10 +25,12 @@ export type RootStackParamList = {
   NuevaSolicitud: undefined;
   Reportar: undefined;
   Tienda: undefined;
+  CatalogoInsignias: undefined;
   Academia: undefined;
   Checklists: undefined;
   ResolverChecklist: { checklist: ChecklistRouteParam };
   Planilla: undefined;
+  MiDisciplina: undefined;
   Sugerencias: undefined;
   HorasExtras: undefined;
   AdminDashboard: undefined;

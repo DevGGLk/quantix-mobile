@@ -32,6 +32,7 @@ export type Database = {
       badge_catalogue: {
         Row: {
           id: string;
+          company_id: string;
           name: string;
           description: string | null;
           criteria: string | null;
@@ -45,7 +46,7 @@ export type Database = {
           id: string;
           badge_id: string;
           employee_id: string;
-          created_at: string | null;
+          points_awarded: number | null;
         };
       };
       // (El resto de tablas se tipan bajo demanda)
