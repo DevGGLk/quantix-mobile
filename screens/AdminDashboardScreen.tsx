@@ -20,8 +20,11 @@ import { errorMessage } from '../lib/errorMessage';
 
 type SolicitudPendiente = {
   id: string;
+  /** Tabla origen: legacy vs paridad web (`time_off_requests`). */
+  source: 'employee_requests' | 'time_off_requests';
   request_type: string | null;
   reason: string | null;
+  start_date: string | null;
   employees: { first_name?: string | null; last_name?: string | null } | null;
 };
 
@@ -71,17 +74,26 @@ export default function AdminDashboardScreen() {
 
   const handleGestionarSolicitud = async (
     id: string,
+    source: SolicitudPendiente['source'],
     nuevoEstado: 'aprobado' | 'rechazado'
   ) => {
     try {
       setUpdatingRequestId(id);
 
-      const { error } = await supabase
-        .from('employee_requests')
-        .update({ status: nuevoEstado })
-        .eq('id', id);
-
-      if (error) throw error;
+      if (source === 'time_off_requests') {
+        const statusWeb = nuevoEstado === 'aprobado' ? 'aprobada' : 'rechazada';
+        const { error } = await supabase
+          .from('time_off_requests')
+          .update({ status: statusWeb })
+          .eq('id', id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('employee_requests')
+          .update({ status: nuevoEstado })
+          .eq('id', id);
+        if (error) throw error;
+      }
 
       setSolicitudesPendientes((prev) => prev.filter((s) => s.id !== id));
       setPermisosPendientesCount((prev) => Math.max(0, prev - 1));
@@ -129,17 +141,34 @@ export default function AdminDashboardScreen() {
           return q;
         };
 
-        const buildSolicitudes = () => {
+        const buildSolicitudesLegacy = () => {
           let q = supabase
             .from('employee_requests')
             .select(
-              'id, request_type, reason, employees!inner(first_name, last_name, branch_id)',
+              'id, request_type, reason, start_date, employees!inner(first_name, last_name, branch_id)',
               { count: 'exact' }
             )
             .eq('company_id', companyId)
-            .eq('status', 'pendiente')
-            .order('created_at', { ascending: false })
-            .limit(5);
+            .in('status', ['pendiente', 'pending'])
+            .order('start_date', { ascending: true })
+            .limit(12);
+          if (filterByBranch) {
+            q = q.eq('employees.branch_id', primaryBranchId);
+          }
+          return q;
+        };
+
+        const buildSolicitudesTimeOff = () => {
+          let q = supabase
+            .from('time_off_requests')
+            .select(
+              'id, request_type, notes, start_date, employees!inner(first_name, last_name, branch_id)',
+              { count: 'exact' }
+            )
+            .eq('company_id', companyId)
+            .in('status', ['pendiente', 'pending'])
+            .order('start_date', { ascending: true })
+            .limit(12);
           if (filterByBranch) {
             q = q.eq('employees.branch_id', primaryBranchId);
           }
@@ -233,15 +262,18 @@ export default function AdminDashboardScreen() {
           });
         };
 
-        const [tardanzasRes, solicitudesRes, checklistsRes, horasExtrasRes] = await Promise.all([
-          buildTardanzas(),
-          buildSolicitudes(),
-          buildChecklists(),
-          buildHorasExtras(),
-        ]);
+        const [tardanzasRes, solicitudesLegacyRes, solicitudesTorRes, checklistsRes, horasExtrasRes] =
+          await Promise.all([
+            buildTardanzas(),
+            buildSolicitudesLegacy(),
+            buildSolicitudesTimeOff(),
+            buildChecklists(),
+            buildHorasExtras(),
+          ]);
 
         if (tardanzasRes.error) throw tardanzasRes.error;
-        if (solicitudesRes.error) throw solicitudesRes.error;
+        if (solicitudesLegacyRes.error) throw solicitudesLegacyRes.error;
+        if (solicitudesTorRes.error) throw solicitudesTorRes.error;
         if (checklistsRes.error) throw checklistsRes.error;
         if (horasExtrasRes.error) throw horasExtrasRes.error;
 
@@ -249,9 +281,49 @@ export default function AdminDashboardScreen() {
 
         if (!isMounted) return;
 
+        type RowEr = {
+          id: string;
+          request_type: string | null;
+          reason: string | null;
+          start_date?: string | null;
+          employees: SolicitudPendiente['employees'];
+        };
+        type RowTor = {
+          id: string;
+          request_type: string | null;
+          notes: string | null;
+          start_date?: string | null;
+          employees: SolicitudPendiente['employees'];
+        };
+        const legacyRows = (solicitudesLegacyRes.data ?? []) as RowEr[];
+        const torRows = (solicitudesTorRes.data ?? []) as RowTor[];
+        const merged: SolicitudPendiente[] = [
+          ...legacyRows.map((r) => ({
+            id: r.id,
+            source: 'employee_requests' as const,
+            request_type: r.request_type,
+            reason: r.reason,
+            start_date: r.start_date ?? null,
+            employees: r.employees,
+          })),
+          ...torRows.map((r) => ({
+            id: r.id,
+            source: 'time_off_requests' as const,
+            request_type: r.request_type,
+            reason: r.notes,
+            start_date: r.start_date ?? null,
+            employees: r.employees,
+          })),
+        ]
+          .sort((a, b) => String(a.start_date ?? '').localeCompare(String(b.start_date ?? '')))
+          .slice(0, 5);
+
+        const totalPendientes =
+          (solicitudesLegacyRes.count ?? 0) + (solicitudesTorRes.count ?? 0);
+
         setTardanzasHoy(tardanzasRes.count ?? 0);
-        setSolicitudesPendientes((solicitudesRes.data ?? []) as SolicitudPendiente[]);
-        setPermisosPendientesCount(solicitudesRes.count ?? 0);
+        setSolicitudesPendientes(merged);
+        setPermisosPendientesCount(totalPendientes);
         setChecklistsHoy((checklistsRes.data ?? []) as unknown as ChecklistHoy[]);
         setHorasExtrasPendientes(horasExtrasRes.count ?? 0);
         setUltimasIncidencias(incidenciasItems);
@@ -373,13 +445,13 @@ export default function AdminDashboardScreen() {
                               text: 'Rechazar',
                               style: 'destructive',
                               onPress: () =>
-                                handleGestionarSolicitud(item.id, 'rechazado'),
+                                handleGestionarSolicitud(item.id, item.source, 'rechazado'),
                             },
                             {
                               text: 'Aprobar',
                               style: 'default',
                               onPress: () =>
-                                handleGestionarSolicitud(item.id, 'aprobado'),
+                                handleGestionarSolicitud(item.id, item.source, 'aprobado'),
                             },
                             { text: 'Cancelar', style: 'cancel' },
                           ]

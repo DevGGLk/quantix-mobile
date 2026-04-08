@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { assignGamificationPointsRpc } from './assignGamificationPointsRpc';
 
 const API_BASE = (process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? '').replace(/\/$/, '');
 
@@ -65,28 +66,30 @@ export async function completeOnboardingFallback(
     return;
   }
 
-  const { data: balanceRow, error: balanceReadErr } = await supabase
-    .from('gamification_balances')
-    .select('balance')
-    .eq('employee_id', employeeRowId)
+  const { data: empRow, error: empLookupErr } = await supabase
+    .from('employees')
+    .select('company_id')
+    .eq('id', employeeRowId)
     .maybeSingle();
-  if (balanceReadErr) throw balanceReadErr;
+  if (empLookupErr) throw empLookupErr;
 
-  const currentBalance = (balanceRow as { balance?: number } | null)?.balance ?? 0;
-  const newBalance = currentBalance + REWARD_POINTS;
+  const companyId = String((empRow as { company_id?: string | null } | null)?.company_id ?? '').trim();
+  if (!companyId) {
+    console.warn('onboarding fallback: expediente sin company_id; se omiten puntos de gamificación.');
+    return;
+  }
 
-  const { error: balErr } = await supabase.from('gamification_balances').upsert(
-    { employee_id: employeeRowId, balance: newBalance },
-    { onConflict: 'employee_id' }
-  );
-  if (balErr) throw balErr;
-
-  const { error: txErr } = await supabase.from('gamification_transactions').insert({
-    employee_id: employeeRowId,
-    description: 'Inducción corporativa completada',
+  const { error: rpcError } = await assignGamificationPointsRpc({
+    companyId,
+    employeeId: employeeRowId,
     amount: REWARD_POINTS,
+    description: 'Inducción corporativa completada',
+    transactionType: 'earned',
   });
-  if (txErr) throw txErr;
+  if (rpcError) {
+    console.error('Error al asignar puntos (onboarding):', rpcError);
+    throw new Error(rpcError.message);
+  }
 }
 
 export async function runOnboardingCompletion(

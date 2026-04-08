@@ -16,6 +16,10 @@ import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 import type { GamificationSettingsRow } from '../lib/gamificationRows';
 import { errorMessage } from '../lib/errorMessage';
+import {
+  assignGamificationPointsRpc,
+  MAX_SINGLE_POSITIVE_AWARD_POINTS,
+} from '../lib/assignGamificationPointsRpc';
 
 type Course = {
   id: string;
@@ -180,10 +184,19 @@ export default function AcademiaScreen() {
       Alert.alert('Error', 'No se pudo identificar tu sesión.');
       return;
     }
+    const companyId = employee?.company_id ?? null;
+    if (!companyId) {
+      Alert.alert('Error', 'No se pudo identificar tu empresa.');
+      return;
+    }
     if (completandoId) return;
 
-    const points = curso.reward_points ?? 0;
+    const pointsRaw = curso.reward_points ?? 0;
+    const points = Math.floor(
+      typeof pointsRaw === 'number' ? pointsRaw : Number(pointsRaw) || 0
+    );
     const titulo = curso.title ?? 'Curso';
+    const marker = `[academy_course:${curso.id}]`;
 
     try {
       setCompletandoId(curso.id);
@@ -205,6 +218,29 @@ export default function AcademiaScreen() {
         return;
       }
 
+      if (points > MAX_SINGLE_POSITIVE_AWARD_POINTS) {
+        Alert.alert(
+          'Error',
+          'La recompensa configurada para este curso supera el máximo permitido.'
+        );
+        return;
+      }
+
+      if (points > 0) {
+        const description = `Curso de Academia Completado: ${titulo} · ${marker}`;
+        const { error: rpcError } = await assignGamificationPointsRpc({
+          companyId,
+          employeeId,
+          amount: points,
+          description,
+          transactionType: 'earned',
+        });
+        if (rpcError) {
+          console.error('Error al asignar puntos (Academia):', rpcError);
+          throw new Error(rpcError.message);
+        }
+      }
+
       const { error: upsertProgressErr } = await supabase
         .from('employee_course_progress')
         .upsert(
@@ -217,34 +253,11 @@ export default function AcademiaScreen() {
         );
       if (upsertProgressErr) throw upsertProgressErr;
 
-      const { data: balanceRow, error: balanceReadErr } = await supabase
-        .from('gamification_balances')
-        .select('balance')
-        .eq('employee_id', employeeId)
-        .maybeSingle();
-      if (balanceReadErr) throw balanceReadErr;
-
-      const currentBalance = (balanceRow as { balance?: number } | null)?.balance ?? 0;
-      const newBalance = currentBalance + points;
-
-      const { error: upsertBalErr } = await supabase
-        .from('gamification_balances')
-        .upsert(
-          { employee_id: employeeId, balance: newBalance },
-          { onConflict: 'employee_id' }
-        );
-      if (upsertBalErr) throw upsertBalErr;
-
-      const { error: txInsertErr } = await supabase.from('gamification_transactions').insert({
-        employee_id: employeeId,
-        description: `Curso completado: ${titulo}`,
-        amount: points,
-      });
-      if (txInsertErr) throw txInsertErr;
-
       Alert.alert(
         '¡Felicidades!',
-        `Has completado el curso y ganado +${points} ${currencyName} ${currencySymbol}`
+        points > 0
+          ? `Has completado el curso y ganado +${points} ${currencyName} ${currencySymbol}`
+          : `Has completado el curso.`
       );
     } catch (e: unknown) {
       console.error('Error al completar curso:', e);

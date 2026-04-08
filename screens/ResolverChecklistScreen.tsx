@@ -15,6 +15,10 @@ import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 import { errorMessage } from '../lib/errorMessage';
+import {
+  assignGamificationPointsRpc,
+  MAX_SINGLE_POSITIVE_AWARD_POINTS,
+} from '../lib/assignGamificationPointsRpc';
 import type { RootStackNavigation, RootStackParamList } from '../types/navigation';
 
 type ChecklistItem = Record<string, unknown> & {
@@ -125,7 +129,8 @@ export default function ResolverChecklistScreen() {
 
       const authUserId = session?.user?.id ?? null;
       const employeeRowId = employee?.id ?? null;
-      if (!authUserId || !employeeRowId) {
+      const companyId = employee?.company_id ?? null;
+      if (!authUserId || !employeeRowId || !companyId) {
         Alert.alert('Error', 'No se pudo obtener tu expediente de empleado.');
         return;
       }
@@ -140,17 +145,105 @@ export default function ResolverChecklistScreen() {
       const completed = total > 0 ? checkedIds.size : 0;
       const completion_percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-      const { error: insertError } = await supabase.from('checklist_submissions').insert({
-        checklist_id: checklist.id,
-        employee_id: employeeRowId,
-        completion_percentage,
-      });
+      const checkedItemIds = Array.from(checkedIds);
+      const metadataPayload = { checked_item_ids: checkedItemIds };
 
-      if (insertError) throw insertError;
+      const { data: prevRow, error: prevErr } = await supabase
+        .from('checklist_submissions')
+        .select('id, completion_percentage')
+        .eq('checklist_id', checklist.id)
+        .eq('employee_id', employeeRowId)
+        .maybeSingle();
+      if (prevErr) throw prevErr;
+
+      const prevPct = Math.min(
+        100,
+        Math.max(
+          0,
+          Math.round(
+            Number(
+              (prevRow as { completion_percentage?: string | number | null } | null)
+                ?.completion_percentage
+            ) || 0
+          )
+        )
+      );
+      const wasAlreadyComplete = prevPct >= 100;
+
+      const nowIso = new Date().toISOString();
+      const prevId = (prevRow as { id?: string } | null)?.id;
+
+      if (prevId) {
+        const { error: upErr } = await supabase
+          .from('checklist_submissions')
+          .update({
+            completion_percentage,
+            metadata: metadataPayload,
+            submitted_at: nowIso,
+          })
+          .eq('id', prevId)
+          .eq('employee_id', employeeRowId)
+          .eq('checklist_id', checklist.id);
+        if (upErr) throw upErr;
+      } else {
+        const { error: insertError } = await supabase.from('checklist_submissions').insert({
+          checklist_id: checklist.id,
+          employee_id: employeeRowId,
+          completion_percentage,
+          metadata: metadataPayload,
+          submitted_at: nowIso,
+        });
+        if (insertError) throw insertError;
+      }
+
+      const { data: settingsRow } = await supabase
+        .from('company_settings')
+        .select('checklist_rewards_enabled')
+        .eq('company_id', companyId)
+        .maybeSingle();
+
+      const rewardsEnabled =
+        (settingsRow as { checklist_rewards_enabled?: boolean | null } | null)
+          ?.checklist_rewards_enabled !== false;
+
+      const cl = checklist as Record<string, unknown>;
+      const givesPoints = cl.gives_points === true;
+      const basePoints = Math.floor(
+        Number(cl.points_reward ?? cl.reward_points ?? cl.points) || 0
+      );
+
+      const shouldAward =
+        completion_percentage === 100 &&
+        !wasAlreadyComplete &&
+        rewardsEnabled &&
+        givesPoints &&
+        basePoints > 0 &&
+        basePoints <= MAX_SINGLE_POSITIVE_AWARD_POINTS;
+
+      if (shouldAward) {
+        const title = String(cl.title ?? 'Checklist').trim() || 'Checklist';
+        const description = `Checklist completado: ${title}`;
+        const { error: rpcError } = await assignGamificationPointsRpc({
+          companyId,
+          employeeId: employeeRowId,
+          amount: basePoints,
+          description,
+          transactionType: 'earned',
+        });
+        if (rpcError) {
+          console.error('Error al asignar puntos (checklist):', rpcError);
+          throw new Error(rpcError.message);
+        }
+      }
+
+      const rewardHint =
+        completion_percentage === 100 && shouldAward
+          ? ' Recompensa registrada vía gamificación.'
+          : '';
 
       Alert.alert(
         'Checklist enviado',
-        `Cumplimiento: ${completion_percentage}%`,
+        `Cumplimiento: ${completion_percentage}%.${rewardHint}`,
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (e: unknown) {

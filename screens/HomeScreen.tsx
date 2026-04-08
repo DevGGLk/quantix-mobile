@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -41,6 +41,18 @@ const PAUSE_EVENT_START = 'break_start';
 const PAUSE_EVENT_END = 'break_end';
 
 const API_BASE = (process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? '').replace(/\/$/, '');
+
+/** Polling `live_locations`: fallback y límites de batería (paridad con políticas web). */
+const GPS_REFRESH_FALLBACK_SEC = 15;
+const GPS_REFRESH_MIN_SEC = 10;
+const GPS_REFRESH_MAX_SEC = 600;
+
+function resolveGpsPollingIntervalMs(rateSeconds: number | null | undefined): number {
+  const n = Math.round(Number(rateSeconds));
+  const base = Number.isFinite(n) && n >= 1 ? n : GPS_REFRESH_FALLBACK_SEC;
+  const clamped = Math.min(GPS_REFRESH_MAX_SEC, Math.max(GPS_REFRESH_MIN_SEC, base));
+  return clamped * 1000;
+}
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
   if (!text.trim()) return null;
@@ -229,6 +241,8 @@ export default function HomeScreen() {
   const [announcementsLoadError, setAnnouncementsLoadError] = useState<string | null>(null);
   const [eventsLoadError, setEventsLoadError] = useState<string | null>(null);
 
+  const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -411,6 +425,86 @@ export default function HomeScreen() {
       isMounted = false;
     };
   }, [employeeRecordId, companyId, refreshPauseState]);
+
+  /**
+   * Telemetría en vivo (`live_locations`): solo con turno activo y consentimiento en `profiles`
+   * (paridad con Mi Portal web). El intervalo respeta `gps_refresh_rate_seconds` con clamp.
+   */
+  useEffect(() => {
+    const trackingOk = authProfile?.is_gps_tracking_enabled === true;
+    const canSend =
+      trackingOk &&
+      isClockedIn &&
+      !!activeTimeEntryId &&
+      !!companyId &&
+      !!employeeRecordId;
+
+    if (!canSend) {
+      if (gpsIntervalRef.current) {
+        clearInterval(gpsIntervalRef.current);
+        gpsIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const sendLiveLocation = async () => {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const latitude = pos.coords.latitude;
+        const longitude = pos.coords.longitude;
+        const speed = pos.coords.speed;
+        const speedOk =
+          speed != null && Number.isFinite(speed) && !Number.isNaN(speed) ? speed : null;
+
+        const payload: Record<string, unknown> = {
+          company_id: companyId,
+          employee_id: employeeRecordId,
+          latitude,
+          longitude,
+          geog: `SRID=4326;POINT(${longitude} ${latitude})`,
+          created_at: new Date().toISOString(),
+        };
+        if (speedOk != null) {
+          payload.velocity = speedOk;
+        }
+
+        const { error } = await supabase.from('live_locations').upsert(payload, {
+          onConflict: 'employee_id',
+        });
+        if (error) {
+          console.warn('live_locations (GPS turno activo):', error.message);
+        }
+      } catch (e: unknown) {
+        console.warn('GPS turno activo:', errorMessage(e));
+      }
+    };
+
+    void sendLiveLocation();
+
+    const ms = resolveGpsPollingIntervalMs(authProfile?.gps_refresh_rate_seconds ?? undefined);
+    gpsIntervalRef.current = setInterval(() => {
+      void sendLiveLocation();
+    }, ms);
+
+    return () => {
+      if (gpsIntervalRef.current) {
+        clearInterval(gpsIntervalRef.current);
+        gpsIntervalRef.current = null;
+      }
+    };
+  }, [
+    authProfile?.is_gps_tracking_enabled,
+    authProfile?.gps_refresh_rate_seconds,
+    isClockedIn,
+    activeTimeEntryId,
+    companyId,
+    employeeRecordId,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -625,6 +719,17 @@ export default function HomeScreen() {
       if (updateError) {
         Alert.alert('Error', updateError.message);
         return;
+      }
+
+      if (companyId && employeeRecordId) {
+        const { error: delLiveErr } = await supabase
+          .from('live_locations')
+          .delete()
+          .eq('employee_id', employeeRecordId)
+          .eq('company_id', companyId);
+        if (delLiveErr) {
+          console.warn('live_locations (delete al marcar salida):', delLiveErr.message);
+        }
       }
 
       setClockStatusLoadError(null);

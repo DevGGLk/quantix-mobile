@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Switch,
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
@@ -21,22 +22,34 @@ import { errorMessage } from '../lib/errorMessage';
 
 type LeaveType = 'Vacaciones' | 'Permiso por Enfermedad' | 'Asunto Personal';
 
-function mapLeaveTypeToRequestType(type: LeaveType): 'vacation' | 'permission' | 'sick_leave' {
+/**
+ * Valores alineados con `time_off_requests.request_type` en web (`/vacaciones`, shift_templates).
+ */
+function mapLeaveTypeToTimeOffRequestType(type: LeaveType): string {
   switch (type) {
     case 'Vacaciones':
-      return 'vacation';
+      return 'Vacaciones';
     case 'Permiso por Enfermedad':
-      return 'sick_leave';
+      return 'Subsidio (INSS)';
     case 'Asunto Personal':
     default:
-      return 'permission';
+      return 'Permiso sin goce de sueldo';
   }
+}
+
+function diasCalendarioInclusivos(startIso: string, endIso: string): number {
+  const a = new Date(`${startIso}T12:00:00`);
+  const b = new Date(`${endIso}T12:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+  const diff = Math.round((b.getTime() - a.getTime()) / (24 * 60 * 60 * 1000));
+  return Math.max(0, diff + 1);
 }
 
 export default function NuevaSolicitudScreen() {
   const { session, employee } = useAuth();
   const navigation = useNavigation<RootStackNavigation>();
 
+  const [consentimientoLegal, setConsentimientoLegal] = useState(false);
   const [selectedType, setSelectedType] = useState<LeaveType>('Vacaciones');
   const [startDateIso, setStartDateIso] = useState<string>('');
   const [endDateIso, setEndDateIso] = useState<string>('');
@@ -76,8 +89,19 @@ export default function NuevaSolicitudScreen() {
     }
   };
 
+  const requiereConsentimientoSeptimo = selectedType !== 'Vacaciones';
+  const envioBloqueadoPorConsentimiento = requiereConsentimientoSeptimo && !consentimientoLegal;
+
   const handleSubmit = async () => {
     if (isSubmitting) return;
+
+    if (envioBloqueadoPorConsentimiento) {
+      Alert.alert(
+        'Consentimiento requerido',
+        'Debes aceptar la declaración sobre el séptimo día para enviar este tipo de solicitud.'
+      );
+      return;
+    }
 
     if (!startDateIso || !endDateIso || !reason.trim()) {
       Alert.alert('Campos requeridos', 'Por favor completa las fechas y el motivo.');
@@ -87,13 +111,12 @@ export default function NuevaSolicitudScreen() {
     try {
       setIsSubmitting(true);
 
-      const userId = session?.user?.id ?? null;
-      const employeeRowId = employee?.id ?? null;
-      if (!userId) {
+      if (!session?.user) {
         Alert.alert('Sesión inválida', 'No se pudo obtener la sesión del usuario.');
         return;
       }
 
+      const employeeRowId = employee?.id ?? null;
       const companyId = employee?.company_id ?? null;
       if (!companyId || !employeeRowId) {
         Alert.alert(
@@ -103,17 +126,24 @@ export default function NuevaSolicitudScreen() {
         return;
       }
 
+      const daysDeducted = diasCalendarioInclusivos(startDateIso, endDateIso);
+      if (daysDeducted <= 0) {
+        Alert.alert('Fechas inválidas', 'La fecha de fin debe ser igual o posterior a la de inicio.');
+        return;
+      }
+
       const payload = {
         company_id: companyId,
         employee_id: employeeRowId,
-        request_type: mapLeaveTypeToRequestType(selectedType),
+        request_type: mapLeaveTypeToTimeOffRequestType(selectedType),
         start_date: startDateIso,
         end_date: endDateIso,
-        reason: reason.trim(),
-        status: 'pendiente',
+        days_deducted: daysDeducted,
+        notes: reason.trim(),
+        status: 'pending',
       };
 
-      const { error: insertError } = await supabase.from('employee_requests').insert(payload);
+      const { error: insertError } = await supabase.from('time_off_requests').insert(payload);
       if (insertError) throw insertError;
 
       Alert.alert('Éxito', 'Tu solicitud fue enviada a RRHH');
@@ -218,11 +248,30 @@ export default function NuevaSolicitudScreen() {
           />
         </View>
 
+        {requiereConsentimientoSeptimo && (
+          <View style={styles.consentRow}>
+            <Switch
+              value={consentimientoLegal}
+              onValueChange={setConsentimientoLegal}
+              trackColor={{ false: theme.border, true: `${theme.accent}99` }}
+              thumbColor={consentimientoLegal ? theme.accent : theme.textMuted}
+            />
+            <Text style={styles.consentText}>
+              Entiendo que toda ausencia injustificada o permiso personal sin goce de salario repercutirá en la
+              pérdida del séptimo día (día de descanso remunerado) en la quincena correspondiente, según lo
+              establecido por el Código del Trabajo.
+            </Text>
+          </View>
+        )}
+
         <TouchableOpacity
-          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+          style={[
+            styles.submitButton,
+            (isSubmitting || envioBloqueadoPorConsentimiento) && styles.submitButtonDisabled,
+          ]}
           activeOpacity={0.9}
           onPress={handleSubmit}
-          disabled={isSubmitting}
+          disabled={isSubmitting || envioBloqueadoPorConsentimiento}
         >
           {isSubmitting ? (
             <ActivityIndicator color={theme.backgroundAlt} />
@@ -342,7 +391,21 @@ const styles = StyleSheet.create({
     }),
   },
   submitButtonDisabled: {
-    opacity: 0.8,
+    opacity: 0.45,
+  },
+  consentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  consentText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    color: theme.textSecondary,
   },
   submitButtonText: {
     fontSize: 15,

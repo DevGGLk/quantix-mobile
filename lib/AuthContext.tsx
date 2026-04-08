@@ -11,6 +11,10 @@ export type ProfileRecord = {
   /** Empresa del perfil (auth); se usa para elegir expediente si hay varios `employees`. */
   company_id: string | null;
   onboarding_completed?: boolean | null;
+  /** Consentimiento operativo de RRHH para telemetría en vivo (`live_locations`). Paridad con Mi Portal web. */
+  is_gps_tracking_enabled?: boolean | null;
+  /** Intervalo sugerido entre pings GPS (segundos). */
+  gps_refresh_rate_seconds?: number | null;
 };
 
 /** Expediente RRHH: `id` = `employees.id` (operativo). `user_id` enlaza a `profiles` / auth. */
@@ -88,6 +92,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  /** Paridad con Mi Portal: si RRHH cambia el flag o el intervalo, la app reacciona sin reiniciar sesión. */
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+
+    const channel = supabase
+      .channel(`mobile-profile-gps-${uid}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${uid}` },
+        (payload) => {
+          const nr = payload.new as Record<string, unknown>;
+          setProfile((prev) => {
+            if (!prev || prev.id !== uid) return prev;
+            const next = { ...prev };
+            if (typeof nr.is_gps_tracking_enabled === 'boolean') {
+              next.is_gps_tracking_enabled = nr.is_gps_tracking_enabled;
+            }
+            if (
+              typeof nr.gps_refresh_rate_seconds === 'number' &&
+              Number.isFinite(nr.gps_refresh_rate_seconds) &&
+              nr.gps_refresh_rate_seconds >= 1
+            ) {
+              next.gps_refresh_rate_seconds = nr.gps_refresh_rate_seconds;
+            }
+            return next;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id]);
+
   const refresh = useCallback(async () => {
     const uid = session?.user?.id ?? null;
     if (!uid) {
@@ -101,7 +141,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data: p, error: pErr } = await supabase
         .from('profiles')
-        .select('id, email, role, holding_id, company_id, onboarding_completed')
+        .select(
+          'id, email, role, holding_id, company_id, onboarding_completed, is_gps_tracking_enabled, gps_refresh_rate_seconds'
+        )
         .eq('id', uid)
         .maybeSingle();
 
@@ -119,6 +161,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 holding_id: (row.holding_id as string | null) ?? null,
                 company_id: (row.company_id as string | null) ?? null,
                 onboarding_completed: (row.onboarding_completed as boolean | null) ?? null,
+                is_gps_tracking_enabled:
+                  typeof row.is_gps_tracking_enabled === 'boolean'
+                    ? row.is_gps_tracking_enabled
+                    : null,
+                gps_refresh_rate_seconds: (() => {
+                  const g = row.gps_refresh_rate_seconds;
+                  if (typeof g === 'number' && Number.isFinite(g)) return g;
+                  if (g != null) {
+                    const n = Number(g);
+                    return Number.isFinite(n) ? n : null;
+                  }
+                  return null;
+                })(),
               }
             : null
         );
