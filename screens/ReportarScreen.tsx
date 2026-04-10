@@ -178,10 +178,21 @@ export default function ReportarScreen() {
       return;
     }
 
-    if (!currentCompanyId) {
+    const reporterEmployeeId = employee?.id ?? null;
+    const effectiveCompanyId = employee?.company_id ?? currentCompanyId;
+
+    if (!effectiveCompanyId) {
       Alert.alert(
         'Perfil incompleto',
         'No se encontró una empresa asociada a tu perfil. Contacta a RRHH.'
+      );
+      return;
+    }
+
+    if (!reporterEmployeeId) {
+      Alert.alert(
+        'Perfil incompleto',
+        'No se encontró tu expediente de empleado. Contacta a RRHH para poder enviar reportes.'
       );
       return;
     }
@@ -190,13 +201,16 @@ export default function ReportarScreen() {
       setIsSubmitting(true);
 
       const date = new Date().toISOString();
+      const reasonBody = details.trim();
       const payload = {
-        company_id: currentCompanyId,
+        company_id: effectiveCompanyId,
+        /** Expediente del colaborador reportado (`employees.id`). */
         employee_id: selectedEmployeeId,
         severity,
-        reason: details.trim(),
+        reason: isAnonymous ? `[Anónimo] ${reasonBody}` : reasonBody,
         date,
         type: mapEmployeeIncidentToDisciplinaryType(incidentType),
+        is_active: true,
       };
 
       if (!currentEmployeeId) {

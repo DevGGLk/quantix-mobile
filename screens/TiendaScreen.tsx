@@ -10,12 +10,16 @@ import {
   Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import { HelpModal } from '../components/HelpModal';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 import type { GamificationBalanceRow, GamificationSettingsRow } from '../lib/gamificationRows';
 import { errorMessage } from '../lib/errorMessage';
 import { formatGamificationQuantity, gamificationDisplayName } from '../lib/gamificationCurrencyLabel';
+
+const API_BASE = (process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? '').replace(/\/$/, '');
 
 type Reward = {
   id: string;
@@ -24,17 +28,27 @@ type Reward = {
   stock?: number | null;
 };
 
+type RedeemApiSuccess = {
+  ok: true;
+  newBalance: number;
+  remainingStock?: number;
+};
+
+type RedeemApiError = {
+  error?: string;
+};
+
 export default function TiendaScreen() {
-  const { session, employee } = useAuth();
+  const { session, employee, refresh: refreshAuth } = useAuth();
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [employeeId, setEmployeeId] = useState<string | null>(null);
-  const [employeeDisplayName, setEmployeeDisplayName] = useState<string>('');
   const [coins, setCoins] = useState<number>(0);
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRedeemingId, setIsRedeemingId] = useState<string | null>(null);
   const [currencyName, setCurrencyName] = useState<string>('Puntos');
   const [currencySymbol, setCurrencySymbol] = useState<string>('🪙');
+  const [helpTiendaVisible, setHelpTiendaVisible] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -136,14 +150,9 @@ export default function TiendaScreen() {
           throw rewardsError;
         }
 
-        const displayName =
-          [employee?.first_name, employee?.last_name].filter(Boolean).join(' ').trim() ||
-          'Empleado';
-
         if (isMounted) {
           setCompanyId(newCompanyId);
           setEmployeeId(empRowId);
-          setEmployeeDisplayName(displayName);
           setCoins(newCoins);
           setRewards((rewardsData as Reward[]) ?? []);
         }
@@ -204,31 +213,72 @@ export default function TiendaScreen() {
     if (!employeeId || !companyId) return;
     if (isRedeemingId) return;
 
+    if (!API_BASE) {
+      Alert.alert(
+        'Configuración',
+        'La URL del servidor no está configurada. Define EXPO_PUBLIC_QUANTIX_API_URL para canjear premios.'
+      );
+      return;
+    }
+
     try {
       setIsRedeemingId(premio.id);
 
-      const nuevoBalance = coins - premio.cost_points;
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        Alert.alert('Sesión', sessionError?.message ?? 'Inicia sesión de nuevo para canjear.');
+        return;
+      }
 
-      const { error: updateError } = await supabase
-        .from('gamification_balances')
-        .update({ balance: nuevoBalance })
-        .eq('employee_id', employeeId);
+      const res = await fetch(`${API_BASE}/api/gamification/redeem`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          reward_id: premio.id,
+          companyId,
+        }),
+      });
 
-      if (updateError) throw updateError;
+      const text = await res.text();
+      let json: RedeemApiSuccess | RedeemApiError | Record<string, unknown> = {};
+      try {
+        json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+      } catch {
+        json = {};
+      }
 
-      const { error: insertError } = await supabase
-        .from('gamification_redemptions')
-        .insert({
-          company_id: companyId,
-          employee_display_name: employeeDisplayName || 'Empleado',
-          reward_name: premio.name,
-          points_cost: premio.cost_points,
-          status: 'pendiente',
-        });
+      const apiErr =
+        typeof (json as RedeemApiError).error === 'string'
+          ? (json as RedeemApiError).error
+          : undefined;
+      const ok = res.ok && (json as RedeemApiSuccess).ok === true;
 
-      if (insertError) throw insertError;
+      if (!ok) {
+        Alert.alert(
+          'Canje no disponible',
+          apiErr || text?.slice(0, 200) || `Error del servidor (${res.status}).`
+        );
+        return;
+      }
 
-      setCoins(nuevoBalance);
+      const success = json as RedeemApiSuccess;
+      if (typeof success.newBalance === 'number' && Number.isFinite(success.newBalance)) {
+        setCoins(success.newBalance);
+      }
+
+      if (typeof success.remainingStock === 'number' && Number.isFinite(success.remainingStock)) {
+        setRewards((prev) =>
+          prev.map((r) =>
+            r.id === premio.id ? { ...r, stock: Math.max(0, success.remainingStock!) } : r
+          )
+        );
+      }
+
+      await refreshAuth();
+
       Alert.alert(
         '¡Felicidades!',
         'Tu premio ha sido solicitado. Pasa por administración para retirarlo.'
@@ -252,7 +302,17 @@ export default function TiendaScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.title}>VIP ZONE RECOMPENSAS</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>VIP ZONE RECOMPENSAS</Text>
+            <TouchableOpacity
+              onPress={() => setHelpTiendaVisible(true)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityLabel="Ayuda sobre reglas del Banco Quantix"
+              accessibilityRole="button"
+            >
+              <Ionicons name="information-circle-outline" size={26} color="#64748B" />
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.balanceCard}>
             <Text style={styles.balanceLabel}>Tus {gamificationDisplayName(currencyName)}</Text>
@@ -316,6 +376,13 @@ export default function TiendaScreen() {
             </View>
           )}
         </ScrollView>
+
+        <HelpModal
+          visible={helpTiendaVisible}
+          onClose={() => setHelpTiendaVisible(false)}
+          title="Reglas del Banco Quantix"
+          content="Los puntos se otorgan por completar cursos, tareas y mantener asistencia perfecta. Los canjes son definitivos. El catálogo se actualiza según la disponibilidad de tu sucursal."
+        />
       </View>
     </>
   );
@@ -334,11 +401,19 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 32,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 16,
+    width: '100%',
+  },
   title: {
+    flex: 1,
     fontSize: 24,
     fontWeight: '700',
     color: theme.textPrimary,
-    marginBottom: 16,
   },
   balanceCard: {
     backgroundColor: theme.accent,

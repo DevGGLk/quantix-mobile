@@ -114,7 +114,8 @@ export default function HorasExtrasScreen() {
         setIsLoading(true);
 
         const employeeRowId = employee?.id ?? null;
-        if (!employeeRowId) {
+        const companyId = employee?.company_id ?? null;
+        if (!employeeRowId || !companyId) {
           if (isMounted) setRecords([]);
           return;
         }
@@ -123,6 +124,7 @@ export default function HorasExtrasScreen() {
           .from('extra_hours_records')
           .select('*')
           .eq('employee_id', employeeRowId)
+          .eq('company_id', companyId)
           .order('record_date', { ascending: false });
 
         if (error) throw error;
@@ -148,7 +150,7 @@ export default function HorasExtrasScreen() {
     return () => {
       isMounted = false;
     };
-  }, [employee?.id]);
+  }, [employee?.id, employee?.company_id]);
 
   const isEmpty = !isLoading && records.length === 0;
 

@@ -22,7 +22,7 @@ import { errorMessage } from '../lib/errorMessage';
 export default function ReporteHorasExtrasScreen() {
   const navigation = useNavigation<RootStackNavigation>();
   const insets = useSafeAreaInsets();
-  const { session, employee } = useAuth();
+  const { employee: employeeRecord, profile: authProfile } = useAuth();
 
   const [fecha, setFecha] = useState(() => {
     const d = new Date();
@@ -50,21 +50,26 @@ export default function ReporteHorasExtrasScreen() {
     try {
       setIsSubmitting(true);
 
-      const employeeRowId = employee?.id ?? null;
+      const employeeRowId = employeeRecord?.id ?? null;
       if (!employeeRowId) {
         Alert.alert('Error', 'No se encontró tu expediente de empleado. Contacta a RRHH.');
         return;
       }
 
-      const companyId = employee?.company_id ?? null;
-      if (!companyId) {
-        Alert.alert('Error', 'No se pudo identificar tu empresa.');
+      const fromProfile =
+        authProfile?.company_id != null ? String(authProfile.company_id).trim() : '';
+      const fromEmployee =
+        employeeRecord?.company_id != null ? String(employeeRecord.company_id).trim() : '';
+      const company_id = fromProfile || fromEmployee || null;
+      if (!company_id) {
+        Alert.alert('Error', 'No se pudo identificar tu empresa (perfil ni expediente).');
         return;
       }
 
+      /** `extra_hours_records.employee_id` FK → `employees.id` (ver esquema web / blueprint). */
       const payload = {
+        company_id,
         employee_id: employeeRowId,
-        company_id: companyId,
         record_date: fecha,
         hours_reported: horasNum,
         notes: justificacion.trim(),

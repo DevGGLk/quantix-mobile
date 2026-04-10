@@ -28,10 +28,20 @@ const CATEGORIAS = [
   { id: 'otro', label: 'Otro' },
 ] as const;
 
+function resolveSuggestionCompanyId(
+  authProfile: { company_id?: string | null } | null,
+  employeeRecord: { company_id?: string | null } | null
+): string | null {
+  const fromProfile = authProfile?.company_id != null ? String(authProfile.company_id).trim() : '';
+  const fromEmployee = employeeRecord?.company_id != null ? String(employeeRecord.company_id).trim() : '';
+  const merged = fromProfile || fromEmployee;
+  return merged.length > 0 ? merged : null;
+}
+
 export default function SugerenciasScreen() {
   const navigation = useNavigation<RootStackNavigation>();
   const insets = useSafeAreaInsets();
-  const { session, employee } = useAuth();
+  const { session, employee: employeeRecord, profile: authProfile } = useAuth();
 
   const [category, setCategory] = useState<string>(CATEGORIAS[0].id);
   const [message, setMessage] = useState('');
@@ -48,19 +58,28 @@ export default function SugerenciasScreen() {
     try {
       setIsSubmitting(true);
 
-      const userId = session?.user?.id ?? null;
-      const employeeRowId = employee?.id ?? null;
-      if (!userId) {
+      if (!session?.user?.id) {
         Alert.alert('Error', 'No se pudo obtener tu sesión.');
         return;
       }
 
-      const companyId = employee?.company_id ?? null;
+      const companyId = resolveSuggestionCompanyId(authProfile, employeeRecord);
       if (!companyId) {
-        Alert.alert('Error', 'No se pudo identificar tu empresa.');
+        Alert.alert(
+          'Empresa requerida',
+          'No pudimos determinar tu empresa (perfil ni expediente). Reintenta tras cargar la sesión o contacta a RRHH.'
+        );
         return;
       }
 
+      const employeeRowId =
+        employeeRecord?.id != null && String(employeeRecord.id).trim() !== ''
+          ? String(employeeRecord.id).trim()
+          : null;
+
+      /**
+       * `suggestions.employee_id` FK → `employees.id`. Sugerencia anónima: null.
+       */
       if (!isAnonymous && !employeeRowId) {
         Alert.alert('Error', 'No se encontró tu expediente de empleado. Contacta a RRHH.');
         return;
@@ -68,10 +87,10 @@ export default function SugerenciasScreen() {
 
       const payload = {
         company_id: companyId,
+        employee_id: isAnonymous ? null : employeeRowId,
         category,
         message: trimmed,
         is_anonymous: isAnonymous,
-        employee_id: isAnonymous ? null : employeeRowId,
       };
 
       const { error } = await supabase.from('suggestions').insert(payload);

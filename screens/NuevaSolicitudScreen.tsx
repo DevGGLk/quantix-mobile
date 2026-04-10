@@ -20,12 +20,13 @@ import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 import { errorMessage } from '../lib/errorMessage';
 
+/** Inserciones de ausencias: solo `time_off_requests` (no `employee_requests` legacy / RLS). */
+const SOLICITUDES_AUSENCIA_TABLA = 'time_off_requests' as const;
+
 type LeaveType = 'Vacaciones' | 'Permiso por Enfermedad' | 'Asunto Personal';
 
-/**
- * Valores alineados con `time_off_requests.request_type` en web (`/vacaciones`, shift_templates).
- */
-function mapLeaveTypeToTimeOffRequestType(type: LeaveType): string {
+/** Valores alineados con la columna `time_off_requests.leave_type` (esquema confirmado en Supabase). */
+function mapLeaveTypeToLeaveType(type: LeaveType): string {
   switch (type) {
     case 'Vacaciones':
       return 'Vacaciones';
@@ -45,8 +46,17 @@ function diasCalendarioInclusivos(startIso: string, endIso: string): number {
   return Math.max(0, diff + 1);
 }
 
+function normalizeCompanyId(
+  authProfile: { company_id?: string | null } | null,
+  employeeRecord: { company_id?: string | null } | null
+): string | null {
+  const a = authProfile?.company_id != null ? String(authProfile.company_id).trim() : '';
+  const b = employeeRecord?.company_id != null ? String(employeeRecord.company_id).trim() : '';
+  return (b || a || '') || null;
+}
+
 export default function NuevaSolicitudScreen() {
-  const { session, employee } = useAuth();
+  const { session, employee: employeeRecord, profile: authProfile } = useAuth();
   const navigation = useNavigation<RootStackNavigation>();
 
   const [consentimientoLegal, setConsentimientoLegal] = useState(false);
@@ -116,12 +126,20 @@ export default function NuevaSolicitudScreen() {
         return;
       }
 
-      const employeeRowId = employee?.id ?? null;
-      const companyId = employee?.company_id ?? null;
-      if (!companyId || !employeeRowId) {
+      const employeeRowId = employeeRecord?.id != null ? String(employeeRecord.id).trim() : '';
+      if (!employeeRowId) {
         Alert.alert(
           'Perfil incompleto',
-          'No se encontró expediente o empresa asociada. Contacta a RRHH.'
+          'No se encontró expediente asociado. Contacta a RRHH.'
+        );
+        return;
+      }
+
+      const company_id = normalizeCompanyId(authProfile, employeeRecord);
+      if (!company_id) {
+        Alert.alert(
+          'Perfil incompleto',
+          'No se encontró empresa (expediente ni perfil). Contacta a RRHH.'
         );
         return;
       }
@@ -132,10 +150,11 @@ export default function NuevaSolicitudScreen() {
         return;
       }
 
+      const tipoAusencia = mapLeaveTypeToLeaveType(selectedType);
       const payload = {
-        company_id: companyId,
+        company_id,
         employee_id: employeeRowId,
-        request_type: mapLeaveTypeToTimeOffRequestType(selectedType),
+        leave_type: tipoAusencia,
         start_date: startDateIso,
         end_date: endDateIso,
         days_deducted: daysDeducted,
@@ -143,7 +162,7 @@ export default function NuevaSolicitudScreen() {
         status: 'pending',
       };
 
-      const { error: insertError } = await supabase.from('time_off_requests').insert(payload);
+      const { error: insertError } = await supabase.from(SOLICITUDES_AUSENCIA_TABLA).insert(payload);
       if (insertError) throw insertError;
 
       Alert.alert('Éxito', 'Tu solicitud fue enviada a RRHH');

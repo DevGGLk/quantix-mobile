@@ -8,19 +8,23 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  RefreshControl,
 } from 'react-native';
 
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { TabCompositeNavigation } from '../types/navigation';
+import { HelpModal } from '../components/HelpModal';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { haversineDistanceMeters, parseBranchGeo, type BranchGeo } from '../lib/geo';
 import { useAuth } from '../lib/AuthContext';
 import { errorMessage } from '../lib/errorMessage';
+import { ENTRY_METHOD } from '../lib/entryMethod';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -100,7 +104,6 @@ type CompanyAnnouncement = {
   title: string;
   content: string;
   created_at?: string;
-  is_urgent?: boolean;
 };
 
 type CompanyEvent = {
@@ -216,7 +219,7 @@ function assertInsideGeofence(
 
 export default function HomeScreen() {
   const navigation = useNavigation<TabCompositeNavigation<'Home'>>();
-  const { session, profile: authProfile, employee } = useAuth();
+  const { session, authProfile, employee, refreshProfile } = useAuth();
   const employeeRecordId = employee?.id ?? null;
   const [perfil, setPerfil] = useState<HomePerfil | null>(null);
   const [isLoadingPerfil, setIsLoadingPerfil] = useState(true);
@@ -240,6 +243,8 @@ export default function HomeScreen() {
   /** Fallos al cargar muro de inicio (noticias / eventos). */
   const [announcementsLoadError, setAnnouncementsLoadError] = useState<string | null>(null);
   const [eventsLoadError, setEventsLoadError] = useState<string | null>(null);
+  const [helpGpsVisible, setHelpGpsVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -266,7 +271,7 @@ export default function HomeScreen() {
         // App.tsx, se desmonta el navigator y Home vuelve a montar → mismo efecto → bucle infinito.
         // El perfil/expediente ya se cargan en AuthProvider al cambiar la sesión.
 
-        const cid = employee?.company_id ?? null;
+        const cid = employee?.company_id ?? authProfile?.company_id ?? null;
         const bid = employee?.branch_id ?? null;
 
         if (bid && cid) {
@@ -295,10 +300,18 @@ export default function HomeScreen() {
         }
 
         if (isMounted) {
-          // UI: usamos employees para nombres y profiles para role.
+          // Nombres: `profiles` es la fuente principal (Mi Portal); `employees` como respaldo RRHH.
+          const pickNonEmpty = (...candidates: (string | null | undefined)[]) => {
+            for (const c of candidates) {
+              if (typeof c !== 'string') continue;
+              const t = c.trim();
+              if (t.length > 0) return t;
+            }
+            return null;
+          };
           setPerfil({
-            first_name: employee?.first_name ?? null,
-            last_name: employee?.last_name ?? null,
+            first_name: pickNonEmpty(authProfile?.first_name, employee?.first_name),
+            last_name: pickNonEmpty(authProfile?.last_name, employee?.last_name),
             role: authProfile?.role ?? null,
           });
           setCompanyId(cid);
@@ -322,7 +335,17 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, employee?.company_id, employee?.branch_id, employee?.first_name, employee?.last_name, authProfile?.role]);
+  }, [
+    session?.user?.id,
+    employee?.company_id,
+    employee?.branch_id,
+    employee?.first_name,
+    employee?.last_name,
+    authProfile?.company_id,
+    authProfile?.first_name,
+    authProfile?.last_name,
+    authProfile?.role,
+  ]);
 
   const refreshPauseState = useCallback(async (entryId: string | null) => {
     if (!entryId) {
@@ -439,6 +462,19 @@ export default function HomeScreen() {
       !!companyId &&
       !!employeeRecordId;
 
+    console.log('[GPS diagnóstico] condición envío', {
+      isClockedIn,
+      activeTimeEntryId,
+      is_gps_tracking_enabled: authProfile?.is_gps_tracking_enabled,
+      trackingOk,
+      companyId: companyId ?? null,
+      employeeRecordId: employeeRecordId ?? null,
+      canSend,
+    });
+    if (isClockedIn && activeTimeEntryId && !trackingOk) {
+      console.log('GPS Bloqueado por configuración de privacidad del admin');
+    }
+
     if (!canSend) {
       if (gpsIntervalRef.current) {
         clearInterval(gpsIntervalRef.current);
@@ -461,13 +497,14 @@ export default function HomeScreen() {
         const speedOk =
           speed != null && Number.isFinite(speed) && !Number.isNaN(speed) ? speed : null;
 
+        const createdAt = new Date().toISOString();
         const payload: Record<string, unknown> = {
           company_id: companyId,
           employee_id: employeeRecordId,
           latitude,
           longitude,
           geog: `SRID=4326;POINT(${longitude} ${latitude})`,
-          created_at: new Date().toISOString(),
+          created_at: createdAt,
         };
         if (speedOk != null) {
           payload.velocity = speedOk;
@@ -477,7 +514,9 @@ export default function HomeScreen() {
           onConflict: 'employee_id',
         });
         if (error) {
-          console.warn('live_locations (GPS turno activo):', error.message);
+          console.error('🚨 ERROR GPS SUPABASE:', error);
+        } else {
+          console.log('✅ GPS ENVIADO CON ÉXITO');
         }
       } catch (e: unknown) {
         console.warn('GPS turno activo:', errorMessage(e));
@@ -506,85 +545,92 @@ export default function HomeScreen() {
     employeeRecordId,
   ]);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadHubData = useCallback(async (hubCompanyId: string) => {
+    const cid = hubCompanyId.trim();
+    if (!cid) return;
 
-    async function loadHubData() {
-      if (!companyId) return;
+    try {
+      setIsLoadingHub(true);
+      setAnnouncementsLoadError(null);
+      setEventsLoadError(null);
 
-      try {
-        setIsLoadingHub(true);
-        if (isMounted) {
-          setAnnouncementsLoadError(null);
-          setEventsLoadError(null);
-        }
+      const { data: anunciosData, error: anunciosError } = await supabase
+        .from('company_announcements')
+        .select('title, content, created_at')
+        .eq('company_id', cid)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(3);
 
-        const { data: anunciosData, error: anunciosError } = await supabase
-          .from('company_announcements')
-          .select('title, content, created_at, is_urgent')
-          .eq('company_id', companyId)
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(3);
-
-        if (anunciosError) {
-          console.warn('company_announcements:', anunciosError.message);
-          captureException(anunciosError, { area: 'home_hub', stage: 'company_announcements' });
-          if (isMounted) {
-            setAnuncios([]);
-            setAnnouncementsLoadError(
-              'No pudimos cargar las noticias. Revisa tu conexión o intenta más tarde.'
-            );
-          }
-        } else if (isMounted) {
-          setAnnouncementsLoadError(null);
-          setAnuncios((anunciosData ?? []) as CompanyAnnouncement[]);
-        }
-
-        const { data: eventosData, error: eventosError } = await supabase
-          .from('company_events')
-          .select('title, event_date, location')
-          .eq('company_id', companyId)
-          .order('event_date', { ascending: true })
-          .limit(5);
-
-        if (eventosError) {
-          console.warn('company_events:', eventosError.message);
-          captureException(eventosError, { area: 'home_hub', stage: 'company_events' });
-          if (isMounted) {
-            setEventos([]);
-            setEventsLoadError(
-              'No pudimos cargar los eventos. Revisa tu conexión o intenta más tarde.'
-            );
-          }
-        } else if (isMounted) {
-          setEventsLoadError(null);
-          setEventos((eventosData ?? []) as CompanyEvent[]);
-        }
-      } catch (e: unknown) {
-        console.warn('loadHubData:', errorMessage(e));
-        captureException(e, { area: 'home_hub', stage: 'loadHubData' });
-        if (isMounted) {
-          setAnuncios([]);
-          setEventos([]);
-          setAnnouncementsLoadError(
-            'No pudimos cargar el muro de inicio. Revisa tu conexión o intenta más tarde.'
-          );
-          setEventsLoadError(
-            'No pudimos cargar el muro de inicio. Revisa tu conexión o intenta más tarde.'
-          );
-        }
-      } finally {
-        if (isMounted) setIsLoadingHub(false);
+      if (anunciosError) {
+        console.warn('company_announcements:', anunciosError.message);
+        captureException(anunciosError, { area: 'home_hub', stage: 'company_announcements' });
+        setAnuncios([]);
+        setAnnouncementsLoadError(
+          'No pudimos cargar las noticias. Revisa tu conexión o intenta más tarde.'
+        );
+      } else {
+        setAnnouncementsLoadError(null);
+        setAnuncios((anunciosData ?? []) as CompanyAnnouncement[]);
       }
+
+      const now = new Date().toISOString();
+      const { data: eventosData, error: eventosError } = await supabase
+        .from('company_events')
+        .select('title, event_date, location')
+        .eq('company_id', cid)
+        .gte('event_date', now)
+        .order('event_date', { ascending: true })
+        .limit(5);
+
+      if (eventosError) {
+        console.warn('company_events:', eventosError.message);
+        captureException(eventosError, { area: 'home_hub', stage: 'company_events' });
+        setEventos([]);
+        setEventsLoadError(
+          'No pudimos cargar los eventos. Revisa tu conexión o intenta más tarde.'
+        );
+      } else {
+        setEventsLoadError(null);
+        setEventos((eventosData ?? []) as CompanyEvent[]);
+      }
+    } catch (e: unknown) {
+      console.warn('loadHubData:', errorMessage(e));
+      captureException(e, { area: 'home_hub', stage: 'loadHubData' });
+      setAnuncios([]);
+      setEventos([]);
+      setAnnouncementsLoadError(
+        'No pudimos cargar el muro de inicio. Revisa tu conexión o intenta más tarde.'
+      );
+      setEventsLoadError(
+        'No pudimos cargar el muro de inicio. Revisa tu conexión o intenta más tarde.'
+      );
+    } finally {
+      setIsLoadingHub(false);
     }
+  }, []);
 
-    loadHubData();
+  useEffect(() => {
+    if (!companyId) return;
+    void loadHubData(companyId);
+  }, [companyId, loadHubData]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [companyId]);
+  const onRefreshHome = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const snap = await refreshProfile();
+      const cid =
+        (snap?.profile?.company_id != null && String(snap.profile.company_id).trim()) ||
+        (snap?.employee?.company_id != null && String(snap.employee.company_id).trim()) ||
+        (companyId != null && String(companyId).trim()) ||
+        '';
+      if (cid) {
+        await loadHubData(cid);
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshProfile, loadHubData, companyId]);
 
   const getCurrentLocation = async (): Promise<{ lat: number; lon: number } | null> => {
     let { status } = await Location.requestForegroundPermissionsAsync();
@@ -647,7 +693,7 @@ export default function HomeScreen() {
         employee_id: employeeRecordId,
         company_id: companyId,
         branch_id: employee?.branch_id ?? null,
-        entry_type: 'IN',
+        entry_type: ENTRY_METHOD.GPS_MOBILE,
         status: 'in',
         clock_in: nowIso,
         telemetry: {
@@ -848,8 +894,22 @@ export default function HomeScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefreshHome} tintColor={theme.accent} />
+        }
       >
         <View style={styles.content}>
+          <View style={styles.clockSectionHeader}>
+            <Text style={styles.clockSectionTitle}>Reloj checador</Text>
+            <TouchableOpacity
+              onPress={() => setHelpGpsVisible(true)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityLabel="Ayuda sobre privacidad y GPS"
+              accessibilityRole="button"
+            >
+              <Ionicons name="information-circle-outline" size={24} color="#64748B" />
+            </TouchableOpacity>
+          </View>
           {!isClockedIn ? (
             <TouchableOpacity
               style={[
@@ -946,21 +1006,8 @@ export default function HomeScreen() {
             </Text>
           ) : (
             anuncios.map((anuncio, index) => {
-              const urgente = !!anuncio.is_urgent;
               return (
-                <View
-                  key={index}
-                  style={[
-                    styles.announcementCard,
-                    urgente && styles.announcementCardUrgente,
-                  ]}
-                >
-                  {urgente && (
-                    <View style={styles.announcementUrgenteBadge}>
-                      <Text style={styles.announcementUrgenteIcon}>⚠️</Text>
-                      <Text style={styles.announcementUrgenteLabel}>Urgente</Text>
-                    </View>
-                  )}
+                <View key={index} style={styles.announcementCard}>
                   <Text style={styles.announcementTitle}>{anuncio.title}</Text>
                   <Text
                     style={styles.announcementContent}
@@ -1008,6 +1055,13 @@ export default function HomeScreen() {
           )}
         </View>
       </ScrollView>
+
+      <HelpModal
+        visible={helpGpsVisible}
+        onClose={() => setHelpGpsVisible(false)}
+        title="Privacidad y GPS"
+        content="Para garantizar tu privacidad, la aplicación solo compartirá tu ubicación mientras tengas un turno activo (desde que marcas entrada hasta que marcas salida). Recursos Humanos administra quién requiere esta función."
+      />
     </View>
   );
 }
@@ -1091,23 +1145,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 32,
+    width: '100%',
+  },
+  clockSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 16,
+    width: '100%',
+  },
+  clockSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.textPrimary,
   },
   clockInColumn: {
     alignItems: 'center',
     width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
     gap: 16,
   },
   rowActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
+    justifyContent: 'space-evenly',
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 20,
     flexWrap: 'wrap',
   },
   secondaryRound: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    flexShrink: 0,
     backgroundColor: '#f59e0b',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1122,11 +1198,11 @@ const styles = StyleSheet.create({
     }),
   },
   secondaryRoundText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: '#fff',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 18,
   },
   pauseResumeButton: {
     width: '100%',
@@ -1147,9 +1223,10 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   mainButton: {
-    width: 220,
-    height: 220,
-    borderRadius: 110,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
@@ -1172,10 +1249,11 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   mainButtonText: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '700',
     color: '#ffffff',
     textAlign: 'center',
+    paddingHorizontal: 8,
   },
   hubSection: {
     marginBottom: 24,
@@ -1227,24 +1305,6 @@ const styles = StyleSheet.create({
   announcementContent: {
     fontSize: 13,
     color: '#64748b',
-  },
-  announcementCardUrgente: {
-    borderColor: '#dc2626',
-    borderWidth: 2,
-  },
-  announcementUrgenteBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
-  },
-  announcementUrgenteIcon: {
-    fontSize: 14,
-  },
-  announcementUrgenteLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#dc2626',
   },
   eventsRow: {
     flexDirection: 'row',

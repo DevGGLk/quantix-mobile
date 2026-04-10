@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ScrollView,
   View,
@@ -11,6 +11,7 @@ import {
   Platform,
   Modal,
   Pressable,
+  RefreshControl,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,9 @@ import {
   gamificationDisplayName,
 } from '../lib/gamificationCurrencyLabel';
 import { BadgeCatalogueIcon } from '../utils/badgeIcons';
+import { CopaPathTrail } from '../components/CopaPathTrail';
+import { computeCopaPathStatus } from '../lib/gamificationCopaPath';
+import { sumYearlyEarnedGamificationPoints } from '../lib/gamificationYearlyEarned';
 
 type LeaderboardBalanceRow = {
   employee_id?: string | null;
@@ -116,8 +120,17 @@ function formatTransactionDate(iso: string | null | undefined): string {
   }
 }
 
+function pickTrimmedNamePart(...candidates: (string | null | undefined)[]): string | null {
+  for (const c of candidates) {
+    if (typeof c !== 'string') continue;
+    const t = c.trim();
+    if (t.length > 0) return t;
+  }
+  return null;
+}
+
 export default function PerfilScreen() {
-  const { session, profile, employee } = useAuth();
+  const { session, authProfile, employeeRecord, refreshProfile } = useAuth();
   const navigation = useNavigation<TabCompositeNavigation<'Perfil'>>();
   const [perfil, setPerfil] = useState<PerfilState>({
     nombre: '',
@@ -143,6 +156,21 @@ export default function PerfilScreen() {
   const [missions, setMissions] = useState<MissionItem[]>([]);
   const [insignias, setInsignias] = useState<InsigniaItem[]>([]);
   const [boosts, setBoosts] = useState<BoostItem[]>([]);
+  /** Puntos ganados (`earned`) en el año calendario actual — Camino de Copas (paridad web). */
+  const [yearlyEarnedPoints, setYearlyEarnedPoints] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const calendarYear = new Date().getFullYear();
+  /** Sin expediente o sin `hire_date`: temporada completa (equivalente a `null` en `computeCopaSeasonMultiplier`). */
+  const copaPathHireDate =
+    hireDate != null && String(hireDate).trim() !== ''
+      ? hireDate
+      : `${calendarYear}-01-01`;
+  const copaPathStatus = useMemo(
+    () =>
+      computeCopaPathStatus(yearlyEarnedPoints ?? 0, copaPathHireDate, undefined, calendarYear),
+    [yearlyEarnedPoints, copaPathHireDate, calendarYear]
+  );
 
   const openBadgeModal = (type: BadgeModalType) => {
     setSelectedBadge(type);
@@ -251,7 +279,7 @@ export default function PerfilScreen() {
         }
 
         if (selectedBadge === 'ribbon') {
-          const empId = employee?.id ?? null;
+          const empId = employeeRecord?.id ?? null;
           if (!empId) {
             if (isMounted) setInsignias([]);
             return;
@@ -348,7 +376,7 @@ export default function PerfilScreen() {
     return () => {
       isMounted = false;
     };
-  }, [modalVisible, selectedBadge, companyId, employee?.id, session?.user?.id]);
+  }, [modalVisible, selectedBadge, companyId, employeeRecord?.id, session?.user?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -358,16 +386,23 @@ export default function PerfilScreen() {
       try {
         const userId = session?.user?.id ?? null;
         if (!userId) {
-          if (isMounted) setPerfil({ nombre: '', cargo: '', puntos: 0 });
+          if (isMounted) {
+            setPerfil({ nombre: '', cargo: '', puntos: 0 });
+            setYearlyEarnedPoints(null);
+          }
           return;
         }
 
         if (!isMounted) return;
+        const nombreFirst = pickTrimmedNamePart(
+          authProfile?.first_name,
+          employeeRecord?.first_name
+        );
+        const nombreLast = pickTrimmedNamePart(authProfile?.last_name, employeeRecord?.last_name);
         const nombre =
-          [employee?.first_name, employee?.last_name].filter(Boolean).join(' ').trim() ||
-          'Empleado';
-        const cargo = String(profile?.role ?? 'Colaborador') || 'Colaborador';
-        const companyIdRaw = employee?.company_id ?? null;
+          [nombreFirst, nombreLast].filter(Boolean).join(' ').trim() || 'Empleado';
+        const cargo = String(authProfile?.role ?? 'Colaborador') || 'Colaborador';
+        const companyIdRaw = employeeRecord?.company_id ?? null;
         if (isMounted) setCompanyId(companyIdRaw);
 
         // Configuración de gamificación (moneda): currency_name + symbol
@@ -401,15 +436,27 @@ export default function PerfilScreen() {
           }
         }
 
-        const jobTitleId = (employee?.job_title_id as string | null) ?? null;
-        const empRecordId = employee?.id ?? null;
+        const jobTitleId = (employeeRecord?.job_title_id as string | null) ?? null;
+        const empRecordId = employeeRecord?.id ?? null;
 
         let hireDateIso: string | null = null;
         let hireIsContract = false;
         let vacationAvailable: number | null = null;
 
+        // Fecha de ingreso: `employeeRecord` ya trae `hire_date` / `created_at` desde AuthContext.
+        if (
+          employeeRecord?.hire_date != null &&
+          String(employeeRecord.hire_date).trim() !== ''
+        ) {
+          hireDateIso = String(employeeRecord.hire_date).slice(0, 10);
+          hireIsContract = true;
+        } else if (employeeRecord?.created_at) {
+          hireDateIso = employeeRecord.created_at.slice(0, 10);
+          hireIsContract = false;
+        }
+
         if (empRecordId) {
-          // `select('*')` evita error si aún no existen columnas opcionales (`hire_date`, etc.).
+          // `select('*')` para columnas no mapeadas en contexto (p. ej. vacaciones).
           const { data: laborRow, error: laborErr } = await supabase
             .from('employees')
             .select('*')
@@ -434,11 +481,6 @@ export default function PerfilScreen() {
           }
         }
 
-        const createdSlice = employee?.created_at?.slice(0, 10) ?? null;
-        if (hireDateIso == null && createdSlice) {
-          hireDateIso = createdSlice;
-        }
-
         if (isMounted) {
           setHireDate(hireDateIso);
           setHireDateFromContract(hireIsContract);
@@ -447,11 +489,14 @@ export default function PerfilScreen() {
         let puntos = 0;
         if (empRecordId) {
           try {
-            const { data: balanceData, error: balanceError } = await supabase
+            let balQuery = supabase
               .from('gamification_balances')
               .select('balance')
-              .eq('employee_id', empRecordId)
-              .maybeSingle();
+              .eq('employee_id', empRecordId);
+            if (companyIdRaw) {
+              balQuery = balQuery.eq('company_id', companyIdRaw);
+            }
+            const { data: balanceData, error: balanceError } = await balQuery.maybeSingle();
 
             if (balanceError) {
               console.error('Error en tabla gamification_balances:', balanceError);
@@ -476,6 +521,19 @@ export default function PerfilScreen() {
               );
             }
           }
+        }
+
+        let yearlyTotal: number | null = null;
+        if (empRecordId && companyIdRaw) {
+          const pack = await sumYearlyEarnedGamificationPoints(supabase, {
+            employeeId: empRecordId,
+            companyId: companyIdRaw,
+            year: calendarYear,
+          });
+          yearlyTotal = pack.total;
+        }
+        if (isMounted) {
+          setYearlyEarnedPoints(yearlyTotal);
         }
 
         setPerfil({ nombre, cargo, puntos });
@@ -592,7 +650,29 @@ export default function PerfilScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, employee?.id, employee?.company_id, employee?.job_title_id, profile?.role, employee?.first_name, employee?.last_name]);
+  }, [
+    session?.user?.id,
+    employeeRecord?.id,
+    employeeRecord?.company_id,
+    employeeRecord?.job_title_id,
+    employeeRecord?.hire_date,
+    employeeRecord?.created_at,
+    authProfile?.role,
+    authProfile?.first_name,
+    authProfile?.last_name,
+    employeeRecord?.first_name,
+    employeeRecord?.last_name,
+    calendarYear,
+  ]);
+
+  const onRefreshPerfil = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshProfile();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshProfile]);
 
   const handleLogout = async () => {
     try {
@@ -617,7 +697,13 @@ export default function PerfilScreen() {
   return (
     <>
       <StatusBar style="dark" />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefreshPerfil} tintColor={VIP.purpleDeep} />
+        }
+      >
         <Text style={styles.vipTitle}>VIP ZONE</Text>
         {/* Sección 1: Cabecera de Perfil */}
         <View style={styles.headerCard}>
@@ -661,6 +747,12 @@ export default function PerfilScreen() {
             Tus {gamificationDisplayName(currencyName)} VIP acumulados ({currencySymbol || '🪙'})
           </Text>
         </View>
+
+        {!isLoading ? (
+          <View style={styles.copaPathSlot} collapsable={false}>
+            <CopaPathTrail status={copaPathStatus} />
+          </View>
+        ) : null}
 
         <View style={styles.badgesRow}>
           <TouchableOpacity
@@ -1075,6 +1167,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#fef9c3',
     fontWeight: '600',
+  },
+  /** Reserva alto y evita colapso del track horizontal de copas en Android. */
+  copaPathSlot: {
+    minHeight: 140,
+    overflow: 'visible',
   },
   currencySymbol: {
     fontSize: 22,
