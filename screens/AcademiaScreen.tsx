@@ -283,7 +283,7 @@ export default function AcademiaScreen() {
 
         {isLoading && (
           <View style={styles.loaderRow}>
-            <ActivityIndicator size="small" color={theme.accent} />
+            <ActivityIndicator size="small" color={theme.primary} />
             <Text style={styles.loaderText}>Cargando cursos...</Text>
           </View>
         )}
@@ -303,7 +303,7 @@ export default function AcademiaScreen() {
               <View key={course.id} style={styles.card}>
                 <View style={styles.cardHeader}>
                   <View style={styles.playIconWrap}>
-                    <Ionicons name="play-circle" size={36} color={theme.accent} />
+                    <Ionicons name="play-circle" size={36} color={theme.primary} />
                   </View>
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>+{points} pts</Text>
@@ -449,7 +449,7 @@ const styles = StyleSheet.create({
   },
   startButton: {
     marginTop: 4,
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     borderRadius: 999,
     paddingVertical: 10,
     alignItems: 'center',
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
   },
   completeButton: {
     marginTop: 8,
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     borderRadius: 999,
     paddingVertical: 10,
     alignItems: 'center',

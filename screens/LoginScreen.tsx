@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   recoveryLink: {
-    color: theme.accent,
+    color: theme.primary,
     fontSize: 14,
     fontWeight: '600',
   },

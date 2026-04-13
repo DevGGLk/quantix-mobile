@@ -73,11 +73,13 @@ export default function TiendaScreen() {
 
         let newCoins = 0;
         try {
-          const { data: balanceData, error: balanceError } = empRowId
+          const canReadBalance = Boolean(empRowId && newCompanyId);
+          const { data: balanceData, error: balanceError } = canReadBalance
             ? await supabase
                 .from('gamification_balances')
                 .select('balance')
                 .eq('employee_id', empRowId)
+                .eq('company_id', newCompanyId)
                 .maybeSingle()
             : { data: null, error: null };
 

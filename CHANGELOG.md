@@ -2,7 +2,21 @@
 
 Historial de cambios del cliente **React Native / Expo** (`quantix-mobile`).
 
+## 2026-04-13
+
+- **2026-04-13:** **UI/Refactor:** HomeScreen actualizado a la Master Palette usando StyleSheet nativo. Se implementaron bordes suaves (16px) y Soft UI shadows.
+
 ## 2026-04-10
+
+- **2026-04-10:** **UI/Theme:** Actualización de variables de color a la Master Palette (Deep Navy, Turquesa, Off-White) para reducir fatiga visual.
+
+- **2026-04-10:** **Fix/Mobile:** Buscador de reglamento mejorado con soporte completo de palabras y navegación por flechas.
+
+- **2026-04-10:** **Feat/Mobile:** Se agregó buscador y títulos descriptivos al índice del Reglamento Interno.
+
+- **2026-04-10:** **Feat/Mobile:** Implementado visor de Reglamento con soporte Markdown (`react-native-markdown-display`), índice dinámico horizontal (chips por `##`), buscador interno y fallback a `companies.settings.reglamento_interno` si no hay filas en `company_policies`.
+
+- **2026-04-10:** **Fix/Mobile:** Gamificación: lectura de saldo en Tienda y ranking en Perfil acotada por `company_id` además de `employee_id`; historial de transacciones en Perfil filtrado por empresa cuando existe. El abono de puntos sigue vía RPC `assign_gamification_points` con `employees.id` (`lib/assignGamificationPointsRpc.ts`).
 
 - **2026-04-10:** **Fix/Mobile:** Se actualizó la consulta de lectura de turnos para coincidir con el nuevo esquema de base de datos (`assigned_date`, `is_day_off`).
 

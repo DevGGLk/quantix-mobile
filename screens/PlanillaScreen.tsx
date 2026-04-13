@@ -273,7 +273,7 @@ export default function PlanillaScreen() {
   if (isLoading) {
     return (
       <View style={[styles.loaderContainer, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="small" color={theme.accent} />
+        <ActivityIndicator size="small" color={theme.primary} />
         <Text style={styles.loaderText}>Cargando recibo...</Text>
       </View>
     );
@@ -496,7 +496,7 @@ const styles = StyleSheet.create({
   totalMonto: {
     fontSize: 22,
     fontWeight: '800',
-    color: theme.accent,
+    color: theme.primary,
   },
   legal: {
     marginTop: 20,

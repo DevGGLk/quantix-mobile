@@ -268,7 +268,7 @@ export default function ResolverChecklistScreen() {
 
         {isLoadingItems && (
           <View style={styles.loaderRow}>
-            <ActivityIndicator size="small" color={theme.accent} />
+            <ActivityIndicator size="small" color={theme.primary} />
             <Text style={styles.loaderText}>Cargando tareas...</Text>
           </View>
         )}
@@ -293,7 +293,7 @@ export default function ResolverChecklistScreen() {
                 <Ionicons
                   name={isChecked ? 'checkbox-outline' : 'square-outline'}
                   size={24}
-                  color={isChecked ? theme.accent : theme.textMuted}
+                  color={isChecked ? theme.primary : theme.textMuted}
                 />
                 <Text
                   style={[styles.itemLabel, isChecked && styles.itemLabelChecked]}
@@ -390,14 +390,14 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: 24,
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
       ios: {
-        shadowColor: theme.accent,
+        shadowColor: theme.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.25,
         shadowRadius: 8,

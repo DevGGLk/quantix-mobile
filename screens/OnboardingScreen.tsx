@@ -271,7 +271,7 @@ export default function OnboardingScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.accent} />
+          <ActivityIndicator size="large" color={theme.primary} />
           <Text style={styles.loadingHint}>Preparando tu inducción...</Text>
         </View>
       </SafeAreaView>
@@ -303,7 +303,7 @@ export default function OnboardingScreen() {
         {step === 0 && (
           <View style={styles.card}>
             <View style={styles.cardIconWrap}>
-              <Ionicons name="people" size={36} color={theme.accent} />
+              <Ionicons name="people" size={36} color={theme.primary} />
             </View>
             <Text style={styles.cardTitle}>Misión y cultura</Text>
             <Text style={styles.cardBody}>{missionVision}</Text>
@@ -313,7 +313,7 @@ export default function OnboardingScreen() {
         {step === 1 && (
           <View style={styles.card}>
             <View style={styles.cardIconWrap}>
-              <Ionicons name="document-text" size={36} color={theme.accent} />
+              <Ionicons name="document-text" size={36} color={theme.primary} />
             </View>
             <Text style={styles.cardTitle}>Reglamento interno</Text>
             {policiesLoadError ? (
@@ -339,7 +339,7 @@ export default function OnboardingScreen() {
                 value={termsAccepted}
                 onValueChange={setTermsAccepted}
                 disabled={Boolean(policiesLoadError)}
-                trackColor={{ false: '#cbd5e1', true: theme.accent }}
+                trackColor={{ false: '#cbd5e1', true: theme.primary }}
                 thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
               />
               <Text
@@ -359,7 +359,7 @@ export default function OnboardingScreen() {
         {step === 2 && (
           <View style={styles.card}>
             <View style={styles.cardIconWrap}>
-              <Ionicons name="briefcase" size={36} color={theme.accent} />
+              <Ionicons name="briefcase" size={36} color={theme.primary} />
             </View>
             <Text style={styles.cardTitle}>Mis funciones</Text>
             {!jobTitleId ? (
@@ -367,7 +367,7 @@ export default function OnboardingScreen() {
                 Aún no tienes un puesto asignado. Tu gerente puede actualizarlo en RRHH.
               </Text>
             ) : loadingFunctions ? (
-              <ActivityIndicator style={{ marginTop: 16 }} color={theme.accent} />
+              <ActivityIndicator style={{ marginTop: 16 }} color={theme.primary} />
             ) : jobFunctions.length === 0 ? (
               <Text style={styles.cardBodyMuted}>
                 No hay funciones registradas para tu puesto. Puedes continuar con el siguiente paso.
@@ -376,7 +376,7 @@ export default function OnboardingScreen() {
               <View style={styles.fnList}>
                 {jobFunctions.map((row, idx) => (
                   <View key={idx} style={styles.fnItem}>
-                    <Ionicons name="checkmark-circle" size={20} color={theme.accent} />
+                    <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
                     <Text style={styles.fnText}>{formatJobFunctionRow(row)}</Text>
                   </View>
                 ))}
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.border,
   },
   progressSegActive: {
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
   },
   stepHint: {
     fontSize: 13,
@@ -641,7 +641,7 @@ const styles = StyleSheet.create({
   },
   navBtn: {
     flex: 1,
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',

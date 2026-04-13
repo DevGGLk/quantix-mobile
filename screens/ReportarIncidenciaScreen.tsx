@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '800',
-    color: theme.primary,
+    color: theme.textPrimary,
     marginBottom: 24,
   },
   label: {
@@ -332,8 +332,8 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   employeeChipSelected: {
-    backgroundColor: theme.accent,
-    borderColor: theme.accent,
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
   },
   employeeChipText: {
     fontSize: 14,
@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   button: {
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',

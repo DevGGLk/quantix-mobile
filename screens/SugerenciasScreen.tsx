@@ -167,7 +167,7 @@ export default function SugerenciasScreen() {
           <Switch
             value={isAnonymous}
             onValueChange={setIsAnonymous}
-            trackColor={{ false: theme.border, true: theme.accent }}
+            trackColor={{ false: theme.border, true: theme.primary }}
             thumbColor={theme.backgroundAlt}
           />
         </View>
@@ -240,8 +240,8 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   categoryBtnActive: {
-    backgroundColor: theme.accent,
-    borderColor: theme.accent,
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
   },
   categoryBtnText: {
     fontSize: 13,
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   submitBtn: {
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',

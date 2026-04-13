@@ -182,7 +182,7 @@ export default function MiEmpresaScreen() {
   if (isLoading) {
     return (
       <View style={styles.loaderWrap}>
-        <ActivityIndicator size="large" color={theme.accent} />
+        <ActivityIndicator size="large" color={theme.primary} />
         <Text style={styles.loaderText}>Cargando identidad corporativa...</Text>
       </View>
     );
@@ -303,7 +303,7 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 22,
-    backgroundColor: theme.primary,
+    backgroundColor: theme.textPrimary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
@@ -443,7 +443,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: theme.primary,
+    backgroundColor: theme.textPrimary,
     alignItems: 'center',
     justifyContent: 'center',
   },

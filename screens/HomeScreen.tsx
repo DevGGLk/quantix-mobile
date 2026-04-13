@@ -836,7 +836,7 @@ export default function HomeScreen() {
       <View style={styles.header}>
         {isLoadingPerfil ? (
           <View style={styles.headerLoading}>
-            <ActivityIndicator size="small" color={theme.accent} />
+            <ActivityIndicator size="small" color={theme.primary} />
             <Text style={styles.loadingText}>Cargando tu perfil...</Text>
           </View>
         ) : (
@@ -895,7 +895,7 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefreshHome} tintColor={theme.accent} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefreshHome} tintColor={theme.primary} />
         }
       >
         <View style={styles.content}>
@@ -907,7 +907,7 @@ export default function HomeScreen() {
               accessibilityLabel="Ayuda sobre privacidad y GPS"
               accessibilityRole="button"
             >
-              <Ionicons name="information-circle-outline" size={24} color="#64748B" />
+              <Ionicons name="information-circle-outline" size={24} color={theme.textMuted} />
             </TouchableOpacity>
           </View>
           {!isClockedIn ? (
@@ -922,7 +922,7 @@ export default function HomeScreen() {
               disabled={isPunching || isLoadingClockStatus || isLoadingPerfil}
             >
               {isPunching ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={theme.backgroundAlt} />
               ) : (
                 <Text style={styles.mainButtonText}>📍 Marcar Entrada</Text>
               )}
@@ -936,7 +936,7 @@ export default function HomeScreen() {
                 disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
               >
                 {isPauseActionLoading ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={theme.backgroundAlt} />
                 ) : (
                   <Text style={styles.pauseResumeText}>▶️ Regresar de Pausa</Text>
                 )}
@@ -952,7 +952,7 @@ export default function HomeScreen() {
                 disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
               >
                 {isPunching ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={theme.backgroundAlt} />
                 ) : (
                   <Text style={styles.mainButtonText}>🛑 Marcar Salida</Text>
                 )}
@@ -968,7 +968,7 @@ export default function HomeScreen() {
                   disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
                 >
                   {isPauseActionLoading ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={theme.backgroundAlt} />
                   ) : (
                     <Text style={styles.secondaryRoundText}>⏸{'\n'}Iniciar{'\n'}Pausa</Text>
                   )}
@@ -984,7 +984,7 @@ export default function HomeScreen() {
                   disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
                 >
                   {isPunching ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={theme.backgroundAlt} />
                   ) : (
                     <Text style={styles.mainButtonText}>🛑 Marcar Salida</Text>
                   )}
@@ -999,7 +999,7 @@ export default function HomeScreen() {
           {announcementsLoadError ? (
             <Text style={styles.hubSectionErrorText}>{announcementsLoadError}</Text>
           ) : isLoadingHub && anuncios.length === 0 ? (
-            <ActivityIndicator style={styles.sectionLoader} color={theme.accent} />
+            <ActivityIndicator style={styles.sectionLoader} color={theme.primary} />
           ) : anuncios.length === 0 ? (
             <Text style={styles.emptyText}>
               No hay anuncios nuevos. ¡Que tengas un excelente turno!
@@ -1027,12 +1027,13 @@ export default function HomeScreen() {
           {eventsLoadError ? (
             <Text style={styles.hubSectionErrorText}>{eventsLoadError}</Text>
           ) : isLoadingHub && eventos.length === 0 ? (
-            <ActivityIndicator style={styles.sectionLoader} color={theme.accent} />
+            <ActivityIndicator style={styles.sectionLoader} color={theme.primary} />
           ) : eventos.length === 0 ? (
             <Text style={styles.emptyText}>No hay eventos programados.</Text>
           ) : (
             <ScrollView
               horizontal
+              style={styles.eventsScroll}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.eventsRow}
             >
@@ -1066,6 +1067,17 @@ export default function HomeScreen() {
   );
 }
 
+/** Sombras difusas (Soft UI) para tarjetas y controles elevados — Master Palette. */
+const SOFT_UI_SHADOW = Platform.select({
+  ios: {
+    shadowColor: theme.textPrimary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 15,
+  },
+  android: { elevation: 3 },
+});
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1074,13 +1086,15 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 18,
     paddingHorizontal: 24,
+    backgroundColor: theme.background,
   },
   homeErrorWrap: {
     paddingHorizontal: 24,
     marginTop: 8,
+    backgroundColor: theme.background,
   },
   homeErrorText: {
-    color: '#EF4444',
+    color: theme.danger,
     fontWeight: '600',
     fontSize: 13,
   },
@@ -1092,7 +1106,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: '#64748b',
+    color: theme.textMuted,
     fontWeight: '500',
   },
   greeting: {
@@ -1103,13 +1117,13 @@ const styles = StyleSheet.create({
   role: {
     marginTop: 6,
     fontSize: 14,
-    color: '#64748b',
+    color: theme.textMuted,
     fontWeight: '500',
   },
   clockStatusLoading: {
     marginTop: 10,
     fontSize: 12,
-    color: '#94a3b8',
+    color: theme.textMuted,
     fontWeight: '500',
   },
   adminPanelButton: {
@@ -1117,35 +1131,31 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary,
     paddingVertical: 12,
     paddingHorizontal: 20,
-    borderRadius: 12,
+    borderRadius: theme.cardBorderRadius,
     alignSelf: 'flex-start',
-    ...Platform.select({
-      ios: {
-        shadowColor: theme.primary,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 6,
-      },
-      android: { elevation: 4 },
-    }),
+    ...SOFT_UI_SHADOW,
   },
   adminPanelButtonText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#ffffff',
+    color: theme.backgroundAlt,
   },
   scroll: {
     flex: 1,
+    backgroundColor: theme.background,
   },
   scrollContent: {
     padding: 24,
     paddingBottom: 32,
+    backgroundColor: theme.background,
+    flexGrow: 1,
   },
   content: {
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 32,
     width: '100%',
+    backgroundColor: theme.background,
   },
   clockSectionHeader: {
     flexDirection: 'row',
@@ -1154,6 +1164,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 16,
     width: '100%',
+    backgroundColor: theme.background,
   },
   clockSectionTitle: {
     fontSize: 16,
@@ -1184,23 +1195,15 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 60,
     flexShrink: 0,
-    backgroundColor: '#f59e0b',
+    backgroundColor: theme.warning,
     alignItems: 'center',
     justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: { elevation: 6 },
-    }),
+    ...SOFT_UI_SHADOW,
   },
   secondaryRoundText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#fff',
+    color: theme.backgroundAlt,
     textAlign: 'center',
     lineHeight: 18,
   },
@@ -1209,15 +1212,16 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     paddingVertical: 18,
     paddingHorizontal: 24,
-    borderRadius: 16,
-    backgroundColor: '#d97706',
+    borderRadius: theme.cardBorderRadius,
+    backgroundColor: theme.warning,
     alignItems: 'center',
     justifyContent: 'center',
+    ...SOFT_UI_SHADOW,
   },
   pauseResumeText: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#fff',
+    color: theme.backgroundAlt,
   },
   btnMuted: {
     opacity: 0.75,
@@ -1229,21 +1233,13 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.35,
-        shadowRadius: 12,
-      },
-      android: { elevation: 8 },
-    }),
+    ...SOFT_UI_SHADOW,
   },
   mainButtonCheckedOut: {
-    backgroundColor: '#10b981',
+    backgroundColor: theme.success,
   },
   mainButtonCheckedIn: {
-    backgroundColor: '#ef4444',
+    backgroundColor: theme.danger,
   },
   mainButtonPunching: {
     opacity: 0.9,
@@ -1251,12 +1247,13 @@ const styles = StyleSheet.create({
   mainButtonText: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#ffffff',
+    color: theme.backgroundAlt,
     textAlign: 'center',
     paddingHorizontal: 8,
   },
   hubSection: {
     marginBottom: 24,
+    backgroundColor: theme.background,
   },
   sectionTitle: {
     fontSize: 18,
@@ -1269,32 +1266,22 @@ const styles = StyleSheet.create({
   },
   hubSectionErrorText: {
     fontSize: 14,
-    color: '#EF4444',
+    color: theme.danger,
     fontWeight: '600',
     marginTop: 4,
   },
   emptyText: {
     fontSize: 14,
-    color: '#94a3b8',
+    color: theme.textMuted,
   },
   announcementCard: {
-    backgroundColor: theme.backgroundAlt,
-    borderRadius: 12,
+    backgroundColor: theme.surface,
+    borderRadius: theme.cardBorderRadius,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
+    borderColor: theme.border,
+    ...SOFT_UI_SHADOW,
   },
   announcementTitle: {
     fontSize: 15,
@@ -1304,36 +1291,31 @@ const styles = StyleSheet.create({
   },
   announcementContent: {
     fontSize: 13,
-    color: '#64748b',
+    color: theme.textMuted,
   },
   eventsRow: {
     flexDirection: 'row',
     gap: 12,
+    backgroundColor: theme.background,
+    paddingBottom: 4,
+  },
+  eventsScroll: {
+    backgroundColor: theme.background,
   },
   eventCard: {
     width: 200,
-    backgroundColor: theme.backgroundAlt,
-    borderRadius: 12,
+    backgroundColor: theme.surface,
+    borderRadius: theme.cardBorderRadius,
     padding: 14,
     marginRight: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
+    borderColor: theme.border,
+    ...SOFT_UI_SHADOW,
   },
   eventDate: {
     fontSize: 12,
     fontWeight: '600',
-    color: theme.accent,
+    color: theme.primary,
     marginBottom: 4,
   },
   eventTitle: {
@@ -1344,6 +1326,6 @@ const styles = StyleSheet.create({
   },
   eventLocation: {
     fontSize: 12,
-    color: '#64748b',
+    color: theme.textMuted,
   },
 });

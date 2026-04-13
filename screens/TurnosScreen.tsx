@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
     }),
   },
   cardToday: {
-    borderColor: theme.accent,
+    borderColor: theme.primary,
     borderWidth: 1.6,
   },
   cardTop: {
@@ -358,7 +358,7 @@ const styles = StyleSheet.create({
     borderColor: '#fde68a',
   },
   statusTextSuccess: {
-    color: theme.accent,
+    color: theme.primary,
   },
   statusTextWarning: {
     color: theme.warning,

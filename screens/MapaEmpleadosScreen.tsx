@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
   },
   loaderText: {
     fontSize: 14,
-    color: theme.primary,
+    color: theme.textPrimary,
     fontWeight: '600',
   },
   emptyMapOverlay: {

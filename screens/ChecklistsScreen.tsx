@@ -87,7 +87,7 @@ export default function ChecklistsScreen() {
 
         {isLoading && (
           <View style={styles.loaderRow}>
-            <ActivityIndicator size="small" color={theme.accent} />
+            <ActivityIndicator size="small" color={theme.primary} />
             <Text style={styles.loaderText}>Cargando listas...</Text>
           </View>
         )}
@@ -122,7 +122,7 @@ export default function ChecklistsScreen() {
                   <Text style={styles.cardCategory}>{checklist.category}</Text>
                 )}
                 <View style={styles.cardArrow}>
-                  <Ionicons name="chevron-forward" size={20} color={theme.accent} />
+                  <Ionicons name="chevron-forward" size={20} color={theme.primary} />
                 </View>
               </TouchableOpacity>
             );
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
   pointsText: {
     fontSize: 12,
     fontWeight: '700',
-    color: theme.accent,
+    color: theme.primary,
   },
   cardCategory: {
     marginTop: 6,

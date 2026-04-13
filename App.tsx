@@ -94,7 +94,7 @@ function MainTabs() {
       screenOptions={({ route }) => ({
         headerShown: HEADER_SHOWN,
         tabBarShowLabel: TAB_BAR_SHOW_LABEL,
-        tabBarActiveTintColor: theme.accent,
+        tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textMuted,
         tabBarIcon: ({ focused }) => {
           const names = TAB_ICONS[route.name as keyof typeof TAB_ICONS];
@@ -103,12 +103,12 @@ function MainTabs() {
             <Ionicons
               name={icon as keyof typeof Ionicons.glyphMap}
               size={24}
-              color={focused ? theme.accent : theme.textMuted}
+              color={focused ? theme.primary : theme.textMuted}
             />
           );
         },
         tabBarStyle: {
-          backgroundColor: theme.primary,
+          backgroundColor: theme.textPrimary,
           borderTopWidth: 0,
           ...Platform.select({
             ios: {
@@ -216,7 +216,7 @@ function AppInner() {
     return (
       <SafeAreaProvider>
         <View style={authLoadingStyles.container}>
-          <ActivityIndicator size="large" color={theme.accent} />
+          <ActivityIndicator size="large" color={theme.primary} />
           <Text style={authLoadingStyles.text}>Cargando...</Text>
         </View>
       </SafeAreaProvider>
@@ -235,7 +235,7 @@ function AppInner() {
     return (
       <SafeAreaProvider>
         <View style={authLoadingStyles.container}>
-          <ActivityIndicator size="large" color={theme.accent} />
+          <ActivityIndicator size="large" color={theme.primary} />
           <Text style={authLoadingStyles.text}>Preparando tu sesión...</Text>
         </View>
       </SafeAreaProvider>

@@ -302,7 +302,7 @@ export default function ReportarScreen() {
           <Text style={styles.label}>Selecciona al compañero</Text>
           {isLoadingCollabs ? (
             <View style={styles.loaderRow}>
-              <ActivityIndicator size="small" color={theme.accent} />
+              <ActivityIndicator size="small" color={theme.primary} />
               <Text style={styles.loaderText}>Cargando colaboradores...</Text>
             </View>
           ) : collaborators.length === 0 ? (
@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     color: theme.textPrimary,
   },
   collaboratorNameActive: {
-    color: theme.accent,
+    color: theme.primary,
   },
   collaboratorRole: {
     marginTop: 2,

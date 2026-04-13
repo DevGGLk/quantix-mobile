@@ -45,7 +45,7 @@ function formatDate(dateStr: string): string {
 function getStatusStyle(status: string | null | undefined) {
   const s = (status ?? '').toLowerCase();
   if (s === 'approved') {
-    return { bg: theme.background, text: theme.accent };
+    return { bg: theme.background, text: theme.primary };
   }
   if (s === 'rejected') {
     return { bg: theme.background, text: theme.danger };
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   primaryCta: {
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 12,
@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...Platform.select({
       ios: {
-        shadowColor: theme.accent,
+        shadowColor: theme.primary,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.25,
         shadowRadius: 6,
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
   footerCtaText: {
     fontSize: 15,
     fontWeight: '700',
-    color: theme.accent,
+    color: theme.primary,
   },
   listContent: {
     paddingHorizontal: 24,

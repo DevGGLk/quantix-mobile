@@ -272,8 +272,8 @@ export default function NuevaSolicitudScreen() {
             <Switch
               value={consentimientoLegal}
               onValueChange={setConsentimientoLegal}
-              trackColor={{ false: theme.border, true: `${theme.accent}99` }}
-              thumbColor={consentimientoLegal ? theme.accent : theme.textMuted}
+              trackColor={{ false: theme.border, true: `${theme.primary}99` }}
+              thumbColor={consentimientoLegal ? theme.primary : theme.textMuted}
             />
             <Text style={styles.consentText}>
               Entiendo que toda ausencia injustificada o permiso personal sin goce de salario repercutirá en la
@@ -346,7 +346,7 @@ const styles = StyleSheet.create({
   },
   typeButtonActive: {
     backgroundColor: theme.background,
-    borderColor: theme.accent,
+    borderColor: theme.primary,
   },
   typeButtonText: {
     fontSize: 13,
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   typeButtonTextActive: {
-    color: theme.accent,
+    color: theme.primary,
   },
   input: {
     backgroundColor: theme.backgroundAlt,
@@ -392,14 +392,14 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: 24,
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     borderRadius: 999,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
       ios: {
-        shadowColor: theme.accent,
+        shadowColor: theme.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.25,
         shadowRadius: 8,

@@ -152,7 +152,7 @@ export default function MiDisciplinaScreen() {
         </View>
       ) : loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.accent} />
+          <ActivityIndicator size="large" color={theme.primary} />
           <Text style={styles.hint}>Cargando…</Text>
         </View>
       ) : (
@@ -162,7 +162,7 @@ export default function MiDisciplinaScreen() {
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
           }
           ListEmptyComponent={
             <Text style={styles.empty}>No tienes registros disciplinarios en el sistema.</Text>
@@ -224,7 +224,7 @@ const styles = StyleSheet.create({
   cardType: {
     fontSize: 16,
     fontWeight: '800',
-    color: theme.primary,
+    color: theme.textPrimary,
     marginBottom: 6,
   },
   cardDesc: {

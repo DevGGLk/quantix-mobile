@@ -460,7 +460,7 @@ export default function AdminDashboardScreen() {
                       disabled={isUpdating}
                     >
                       {isUpdating ? (
-                        <ActivityIndicator size="small" color={theme.accent} />
+                        <ActivityIndicator size="small" color={theme.primary} />
                       ) : (
                         <>
                           <Text style={styles.approvalName}>{nombre}</Text>
@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '800',
-    color: theme.primary,
+    color: theme.textPrimary,
     letterSpacing: 0.3,
   },
   subtitle: {
@@ -570,7 +570,7 @@ const styles = StyleSheet.create({
     textTransform: 'capitalize',
   },
   radarGpsButton: {
-    backgroundColor: theme.accent,
+    backgroundColor: theme.primary,
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
@@ -578,7 +578,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...Platform.select({
       ios: {
-        shadowColor: theme.accent,
+        shadowColor: theme.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -680,7 +680,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: theme.primary,
+    color: theme.textPrimary,
     marginBottom: 12,
   },
   section: {
@@ -692,7 +692,7 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
     borderLeftWidth: 4,
-    borderLeftColor: theme.accent,
+    borderLeftColor: theme.primary,
     borderWidth: 1,
     borderColor: theme.border,
     ...Platform.select({
@@ -717,7 +717,7 @@ const styles = StyleSheet.create({
   },
   approvalEstado: {
     fontSize: 12,
-    color: theme.accent,
+    color: theme.primary,
     fontWeight: '600',
     marginTop: 4,
   },

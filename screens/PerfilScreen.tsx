@@ -203,6 +203,7 @@ export default function PerfilScreen() {
           const { data: topData, error: topErr } = await supabase
             .from('gamification_balances')
             .select('employee_id, balance')
+            .eq('company_id', companyId)
             .order('balance', { ascending: false })
             .limit(50);
 
@@ -601,10 +602,14 @@ export default function PerfilScreen() {
 
         try {
           if (empRecordId) {
-            const { data: txData, error: txError } = await supabase
+            let txQuery = supabase
               .from('gamification_transactions')
               .select('*')
-              .eq('employee_id', empRecordId)
+              .eq('employee_id', empRecordId);
+            if (companyIdRaw) {
+              txQuery = txQuery.eq('company_id', companyIdRaw);
+            }
+            const { data: txData, error: txError } = await txQuery
               .order('created_at', { ascending: false })
               .limit(5);
 
