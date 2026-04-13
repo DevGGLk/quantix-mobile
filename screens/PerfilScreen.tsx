@@ -19,7 +19,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { TabCompositeNavigation } from '../types/navigation';
 
 import { supabase } from '../lib/supabase';
-import { checklistGivesPoints, checklistPointsFromRow } from '../lib/checklistReward';
 import { useAuth } from '../lib/AuthContext';
 import type { GamificationBalanceRow, GamificationSettingsRow } from '../lib/gamificationRows';
 import {
@@ -252,28 +251,53 @@ export default function PerfilScreen() {
             return;
           }
 
-          const { data, error } = await supabase
-            .from('checklists')
-            .select('*')
+          const nowIso = new Date().toISOString();
+          const employeeDeptId =
+            typeof employeeRecord?.department_id === 'string' &&
+            employeeRecord.department_id.trim() !== ''
+              ? employeeRecord.department_id.trim()
+              : null;
+
+          let missionsQuery = supabase
+            .from('daily_missions')
+            .select('id, title, points_reward, target_department_id, expires_at')
             .eq('company_id', companyId)
-            .eq('is_active', true)
+            .gte('expires_at', nowIso)
+            .order('expires_at', { ascending: true })
             .limit(40);
+
+          if (employeeDeptId) {
+            missionsQuery = missionsQuery.or(
+              `target_department_id.is.null,target_department_id.eq.${employeeDeptId}`
+            );
+          } else {
+            missionsQuery = missionsQuery.is('target_department_id', null);
+          }
+
+          const { data, error } = await missionsQuery;
 
           if (error || !Array.isArray(data)) {
             if (isMounted) setMissions([]);
             return;
           }
 
-          const mapped: MissionItem[] = data
-            .map((c) => c as Record<string, unknown>)
-            .filter((row) => checklistGivesPoints(row))
-            .slice(0, 6)
-            .map((row) => ({
-              id: String(row.id ?? ''),
-              title: String(row.title ?? 'Checklist'),
-              pts: checklistPointsFromRow(row),
-              completed: false,
-            }));
+          const mapped: MissionItem[] = (data as Record<string, unknown>[])
+            .slice(0, 12)
+            .map((row) => {
+              const ptsRaw = row.points_reward;
+              const ptsNum =
+                typeof ptsRaw === 'number'
+                  ? ptsRaw
+                  : typeof ptsRaw === 'string'
+                    ? Number(ptsRaw)
+                    : NaN;
+              return {
+                id: String(row.id ?? ''),
+                title: String(row.title ?? 'Misión'),
+                pts: Number.isFinite(ptsNum) && ptsNum > 0 ? ptsNum : 0,
+                completed: false,
+              };
+            });
 
           if (isMounted) setMissions(mapped);
           return;
@@ -377,7 +401,14 @@ export default function PerfilScreen() {
     return () => {
       isMounted = false;
     };
-  }, [modalVisible, selectedBadge, companyId, employeeRecord?.id, session?.user?.id]);
+  }, [
+    modalVisible,
+    selectedBadge,
+    companyId,
+    employeeRecord?.id,
+    employeeRecord?.department_id,
+    session?.user?.id,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -808,7 +839,9 @@ export default function PerfilScreen() {
                         <Text style={styles.modalLoaderText}>Cargando misiones...</Text>
                       </View>
                     ) : missions.length === 0 ? (
-                      <Text style={styles.modalEmptyText}>Aún no hay datos registrados.</Text>
+                      <Text style={styles.modalEmptyText}>
+                        No tienes misiones asignadas para hoy. ¡Disfruta tu turno!
+                      </Text>
                     ) : (
                       missions.map((m) => (
                         <View key={m.id} style={styles.misionRow}>
