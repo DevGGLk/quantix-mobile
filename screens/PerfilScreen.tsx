@@ -252,26 +252,27 @@ export default function PerfilScreen() {
           }
 
           const nowIso = new Date().toISOString();
-          const employeeDeptId =
-            typeof employeeRecord?.department_id === 'string' &&
-            employeeRecord.department_id.trim() !== ''
-              ? employeeRecord.department_id.trim()
+          const employeeJobTitleId =
+            typeof employeeRecord?.job_title_id === 'string' &&
+            employeeRecord.job_title_id.trim() !== ''
+              ? employeeRecord.job_title_id.trim()
               : null;
 
           let missionsQuery = supabase
             .from('daily_missions')
-            .select('id, title, points_reward, target_department_id, expires_at')
+            .select('id, title, points_reward, target_job_title_ids, expires_at')
             .eq('company_id', companyId)
             .gte('expires_at', nowIso)
             .order('expires_at', { ascending: true })
             .limit(40);
 
-          if (employeeDeptId) {
+          /** `null` = todos los cargos; si hay array, debe incluir el `job_title_id` del empleado. */
+          if (employeeJobTitleId) {
             missionsQuery = missionsQuery.or(
-              `target_department_id.is.null,target_department_id.eq.${employeeDeptId}`
+              `target_job_title_ids.is.null,target_job_title_ids.cs.{${employeeJobTitleId}}`
             );
           } else {
-            missionsQuery = missionsQuery.is('target_department_id', null);
+            missionsQuery = missionsQuery.is('target_job_title_ids', null);
           }
 
           const { data, error } = await missionsQuery;
@@ -406,7 +407,7 @@ export default function PerfilScreen() {
     selectedBadge,
     companyId,
     employeeRecord?.id,
-    employeeRecord?.department_id,
+    employeeRecord?.job_title_id,
     session?.user?.id,
   ]);
 
