@@ -9,12 +9,15 @@ export type CopaTier = {
   name: string;
   threshold: number;
   imageSrc: string;
+  /** Texto informativo desde `gamification_cup_levels.reward_text` (opcional). */
+  rewardText?: string | null;
 };
 
 export type CopaPathLevelStep = {
   name: string;
   threshold: number;
   imageSrc: string;
+  rewardText?: string | null;
   state: CopaLevelVisualState;
 };
 
@@ -95,6 +98,7 @@ function buildCopaPathLevelSteps(sorted: CopaTier[], earned: number): CopaPathLe
       name: t.name,
       threshold: t.threshold,
       imageSrc: t.imageSrc,
+      rewardText: t.rewardText ?? null,
       state,
     };
   });

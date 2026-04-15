@@ -2,6 +2,12 @@
 
 Historial de cambios del cliente **React Native / Expo** (`quantix-mobile`).
 
+## 2026-04-14
+
+- **2026-04-14:** **Feat/Mobile:** Implementados modales informativos en el Camino de Copas para mostrar metas y recompensas al tocar los niveles.
+
+- **2026-04-14:** **Feat/Mobile:** Sincronización del Camino de Copas. La app ahora dibuja los niveles leyendo dinámicamente de `gamification_cup_levels`.
+
 ## 2026-04-13
 
 - **2026-04-13:** **UI/Refactor:** HomeScreen actualizado a la Master Palette usando StyleSheet nativo. Se implementaron bordes suaves (16px) y Soft UI shadows.

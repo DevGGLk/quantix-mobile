@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
   View,
@@ -28,7 +28,9 @@ import {
 } from '../lib/gamificationCurrencyLabel';
 import { BadgeCatalogueIcon } from '../utils/badgeIcons';
 import { CopaPathTrail } from '../components/CopaPathTrail';
+import type { CopaTier } from '../lib/gamificationCopaPath';
 import { computeCopaPathStatus } from '../lib/gamificationCopaPath';
+import { fetchCupLevelsAsCopaTiers } from '../lib/gamificationCupLevels';
 import { sumYearlyEarnedGamificationPoints } from '../lib/gamificationYearlyEarned';
 
 type LeaderboardBalanceRow = {
@@ -157,7 +159,10 @@ export default function PerfilScreen() {
   const [boosts, setBoosts] = useState<BoostItem[]>([]);
   /** Puntos ganados (`earned`) en el año calendario actual — Camino de Copas (paridad web). */
   const [yearlyEarnedPoints, setYearlyEarnedPoints] = useState<number | null>(null);
+  /** Umbrales desde `gamification_cup_levels`; `undefined` → `computeCopaPathStatus` usa DEFAULT (20k–100k). */
+  const [copaCupTiersOverride, setCopaCupTiersOverride] = useState<CopaTier[] | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
+  const companyIdRef = useRef<string | null>(null);
 
   const calendarYear = new Date().getFullYear();
   /** Sin expediente o sin `hire_date`: temporada completa (equivalente a `null` en `computeCopaSeasonMultiplier`). */
@@ -167,9 +172,29 @@ export default function PerfilScreen() {
       : `${calendarYear}-01-01`;
   const copaPathStatus = useMemo(
     () =>
-      computeCopaPathStatus(yearlyEarnedPoints ?? 0, copaPathHireDate, undefined, calendarYear),
-    [yearlyEarnedPoints, copaPathHireDate, calendarYear]
+      computeCopaPathStatus(yearlyEarnedPoints ?? 0, copaPathHireDate, copaCupTiersOverride, calendarYear),
+    [yearlyEarnedPoints, copaPathHireDate, copaCupTiersOverride, calendarYear]
   );
+
+  useEffect(() => {
+    companyIdRef.current = companyId;
+  }, [companyId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCupLevels() {
+      if (!companyId) {
+        if (!cancelled) setCopaCupTiersOverride(undefined);
+        return;
+      }
+      const tiers = await fetchCupLevelsAsCopaTiers(supabase, companyId);
+      if (!cancelled) setCopaCupTiersOverride(tiers);
+    }
+    void loadCupLevels();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
 
   const openBadgeModal = (type: BadgeModalType) => {
     setSelectedBadge(type);
@@ -706,6 +731,13 @@ export default function PerfilScreen() {
     setRefreshing(true);
     try {
       await refreshProfile();
+      const cid = companyIdRef.current;
+      if (cid) {
+        const tiers = await fetchCupLevelsAsCopaTiers(supabase, cid);
+        setCopaCupTiersOverride(tiers);
+      } else {
+        setCopaCupTiersOverride(undefined);
+      }
     } finally {
       setRefreshing(false);
     }
