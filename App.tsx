@@ -139,7 +139,7 @@ function MainTabs() {
 }
 
 function AppInner() {
-  const { session, isLoading, profile, employee } = useAuth();
+  const { session, isLoading, employee, isOperativeEmployee } = useAuth();
   const [onboardingGate, setOnboardingGate] = useState<OnboardingGateState>('loading');
 
   const releaseToMainApp = useCallback(() => {
@@ -169,7 +169,12 @@ function AppInner() {
       setOnboardingGate('loading');
 
       const companyId = employee?.company_id ?? null;
-      const onboardingCompleted = Boolean(profile?.onboarding_completed);
+      const onboardingCompleted = Boolean(employee?.onboarding_completed);
+
+      if (!isOperativeEmployee) {
+        if (!cancelled) setOnboardingGate('app');
+        return;
+      }
 
       if (!companyId) {
         if (!cancelled) setOnboardingGate('app');
@@ -194,6 +199,7 @@ function AppInner() {
 
         const next = decideOnboardingGate({
           hasSession: true,
+          isOperativeEmployee: true,
           employeeCompanyId: companyId,
           onboardingCompleted,
           companyOnboardingEnabled: onboardingEnabled,
@@ -210,7 +216,14 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id, isLoading, employee?.company_id, profile?.onboarding_completed]);
+  }, [
+    session?.user?.id,
+    isLoading,
+    isOperativeEmployee,
+    employee,
+    employee?.company_id,
+    employee?.onboarding_completed,
+  ]);
 
   if (isLoading) {
     return (

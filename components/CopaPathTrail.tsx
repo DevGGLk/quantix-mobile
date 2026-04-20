@@ -177,6 +177,10 @@ export function CopaPathTrail({ status }: CopaPathTrailProps) {
           ? 'Alcanzada'
           : '';
 
+  const metaOriginal =
+    selectedCopa != null ? selectedCopa.thresholdBase ?? selectedCopa.threshold : 0;
+  const isMetaProrated = selectedCopa != null && metaOriginal > selectedCopa.threshold;
+
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Camino de Copas</Text>
@@ -229,14 +233,31 @@ export function CopaPathTrail({ status }: CopaPathTrailProps) {
 
             <View style={styles.modalBody}>
               <View style={styles.modalSection}>
-                <Text style={styles.modalSectionTitle}>¿Cómo obtenerla?</Text>
-                <Text style={styles.modalSectionText}>
-                  Necesitas acumular{' '}
-                  <Text style={styles.modalEmphasis}>
-                    {selectedCopa?.threshold.toLocaleString('es-NI') ?? '—'} puntos de estatus
-                  </Text>{' '}
-                  en el año (puntos ganados por tu desempeño, distintos al saldo de la tienda).
+                <Text style={styles.modalSectionTitle}>
+                  {isMetaProrated ? 'Meta personalizada' : '¿Cómo obtenerla?'}
                 </Text>
+                {isMetaProrated && selectedCopa ? (
+                  <>
+                    <Text style={styles.modalSectionText}>
+                      <Text style={styles.modalEmphasis}>
+                        Meta personalizada: {selectedCopa.threshold.toLocaleString('es-NI')} puntos
+                      </Text>
+                      . Debes acumularlos en el año (puntos de estatus; distintos al saldo de la tienda).
+                    </Text>
+                    <Text style={styles.modalProrateHelp}>
+                      ¡Tienes una ventaja! La meta original de {metaOriginal.toLocaleString('es-NI')} puntos fue
+                      ajustada matemáticamente por tu fecha de ingreso a mitad de año.
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={styles.modalSectionText}>
+                    Necesitas acumular{' '}
+                    <Text style={styles.modalEmphasis}>
+                      {selectedCopa?.threshold.toLocaleString('es-NI') ?? '—'} puntos de estatus
+                    </Text>{' '}
+                    en el año (puntos ganados por tu desempeño, distintos al saldo de la tienda).
+                  </Text>
+                )}
               </View>
 
               <View style={[styles.modalSection, styles.modalSectionReward]}>
@@ -472,6 +493,12 @@ const styles = StyleSheet.create({
   modalSectionMuted: {
     fontSize: 14,
     lineHeight: 21,
+    color: T.textMuted,
+  },
+  modalProrateHelp: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 18,
     color: T.textMuted,
   },
   modalStateLine: {

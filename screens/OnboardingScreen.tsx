@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -24,8 +24,21 @@ import {
   ONBOARDING_POLICIES_FETCH_FAILED_BODY,
   ONBOARDING_POLICIES_FETCH_FAILED_TITLE,
 } from '../lib/onboardingFallbackCopy';
+import {
+  fetchInductionQuizQuestions,
+  fetchJobTitleFunctionsBlock,
+  fetchOnboardingCompanyData,
+  ONBOARDING_ACADEMY_COURSE_CATEGORY,
+  type InductionQuizQuestion,
+} from '../lib/api';
 
-const STEPS = 4;
+const STEPS = 5;
+
+/** Resolución multi-tenant del cuestionario antes de llegar al paso 2. */
+type InductionRoute = 'loading' | 'quiz' | 'skip';
+
+const MIS_FUNCIONES_FALLBACK_MSG =
+  'Tu jefe directo te comunicará tus funciones específicas.';
 
 function dotLabel(step: number) {
   switch (step) {
@@ -34,8 +47,10 @@ function dotLabel(step: number) {
     case 1:
       return 'Reglamento';
     case 2:
-      return 'Mis funciones';
+      return 'Cuestionario';
     case 3:
+      return 'Mis funciones';
+    case 4:
       return 'Recompensa';
     default:
       return '';
@@ -96,7 +111,7 @@ function formatJobFunctionRow(row: Record<string, unknown>) {
 
 export default function OnboardingScreen() {
   const { releaseToMainApp } = useOnboardingGate();
-  const { session, employee } = useAuth();
+  const { session, employee, profile } = useAuth();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
@@ -111,6 +126,56 @@ export default function OnboardingScreen() {
   const [loadingFunctions, setLoadingFunctions] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
+  const [inductionQuestions, setInductionQuestions] = useState<InductionQuizQuestion[]>([]);
+  const [inductionQuizLoading, setInductionQuizLoading] = useState(false);
+  const [inductionQuizLoadError, setInductionQuizLoadError] = useState<string | null>(null);
+  const [inductionAnswers, setInductionAnswers] = useState<Record<string, number>>({});
+  const [inductionQuizPassed, setInductionQuizPassed] = useState(false);
+  const [inductionRetryNonce, setInductionRetryNonce] = useState(0);
+
+  const [jobTitleLabel, setJobTitleLabel] = useState('');
+  const [jobTitleFunctionsDescription, setJobTitleFunctionsDescription] = useState<string | null>(null);
+  const [loadingJobTitleBlock, setLoadingJobTitleBlock] = useState(false);
+  const [inductionRoute, setInductionRoute] = useState<InductionRoute>('loading');
+
+  useEffect(() => {
+    console.log('[Onboarding] auth snapshot (joins)', {
+      profile,
+      profileCompanyId: profile?.company_id,
+      employeeCompanyId: employee?.company_id,
+      employeeJobTitleId: employee?.job_title_id,
+    });
+  }, [profile, employee]);
+
+  useEffect(() => {
+    if (!companyId) {
+      setInductionRoute('loading');
+      return;
+    }
+    let cancelled = false;
+    setInductionRoute('loading');
+    void fetchInductionQuizQuestions(companyId)
+      .then((r) => {
+        if (cancelled) return;
+        if (r.errorMessage) setInductionRoute('quiz');
+        else if (r.inductionNotConfigured) setInductionRoute('skip');
+        else setInductionRoute('quiz');
+      })
+      .catch((e) => {
+        console.error('[Onboarding] warmup induction:', e);
+        if (!cancelled) setInductionRoute('quiz');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
+  useLayoutEffect(() => {
+    if (step === 2 && inductionRoute === 'skip') {
+      setStep(3);
+    }
+  }, [step, inductionRoute]);
+
   const loadProfileAndCompany = useCallback(async () => {
     setLoading(true);
     try {
@@ -121,65 +186,140 @@ export default function OnboardingScreen() {
       }
       setUserId(uid);
 
-      // Enterprise: se toma desde employees (no desde profiles).
-      const cid = employee?.company_id ?? null;
+      // `company_id`: expediente primero; si falta, perfil tras login (AuthContext ya hidrata desde employees).
+      const cid = employee?.company_id ?? profile?.company_id ?? null;
       const jtid = employee?.job_title_id ?? null;
       setCompanyId(cid);
       setJobTitleId(jtid);
 
-      if (cid) {
-        const [companyRes, policiesRes] = await Promise.all([
-          supabase
-            .from('companies')
-            .select('mission, vision, corporate_values')
-            .eq('id', cid)
-            .maybeSingle(),
-          supabase
-            .from('company_policies')
-            .select('title, content, order_index')
-            .eq('company_id', cid)
-            .order('order_index', { ascending: true }),
-        ]);
-
-        if (companyRes.error) {
-          console.warn('Onboarding company:', companyRes.error.message);
-          setPoliciesLoadError(null);
-          setMissionVision(ONBOARDING_FALLBACK_MISSION_CULTURE);
-          setRulebook(ONBOARDING_FALLBACK_RULEBOOK);
-        } else {
-          const cRow = (companyRes.data ?? null) as Record<string, unknown> | null;
-          const culture = buildMissionCultureBlock(cRow);
-          setMissionVision(culture.trim() ? culture : ONBOARDING_FALLBACK_MISSION_CULTURE);
-
-          if (policiesRes.error) {
-            console.warn('Onboarding company_policies:', policiesRes.error.message);
-            setPoliciesLoadError(ONBOARDING_POLICIES_FETCH_FAILED_TITLE);
-            setRulebook('');
-            setTermsAccepted(false);
-          } else {
-            setPoliciesLoadError(null);
-            const ruleText = buildPoliciesPlaintext(
-              policiesRes.data as { title?: unknown; content?: unknown }[] | null
-            );
-            setRulebook(ruleText.trim() ? ruleText : ONBOARDING_FALLBACK_RULEBOOK);
-          }
-        }
-      } else {
+      if (!cid) {
         setPoliciesLoadError(null);
         setMissionVision(ONBOARDING_FALLBACK_MISSION_CULTURE);
         setRulebook(ONBOARDING_FALLBACK_RULEBOOK);
+        console.error('[Onboarding] company_id nulo: no hay joins a companies / expediente.');
+        return;
       }
+
+      /** ADN multi-marca: `employees.branch_id` → `branches`; holding comparte `companies` como respaldo. */
+      const branchId = employee?.branch_id ?? null;
+      const { companyRow, policiesRows, companiesError, policiesError } =
+        await fetchOnboardingCompanyData(cid, branchId);
+
+      if (companiesError) {
+        Alert.alert('Error de Conexión', `Detalle: ${companiesError}`);
+        setMissionVision(ONBOARDING_FALLBACK_MISSION_CULTURE);
+      } else {
+        const culture = buildMissionCultureBlock(companyRow);
+        setMissionVision(culture.trim() ? culture : ONBOARDING_FALLBACK_MISSION_CULTURE);
+      }
+
+      if (policiesError) {
+        Alert.alert('Error de Conexión', `Detalle: ${policiesError}`);
+        setPoliciesLoadError(ONBOARDING_POLICIES_FETCH_FAILED_TITLE);
+        setRulebook('');
+        setTermsAccepted(false);
+      } else {
+        setPoliciesLoadError(null);
+        const ruleText = buildPoliciesPlaintext(policiesRows);
+        setRulebook(ruleText.trim() ? ruleText : ONBOARDING_FALLBACK_RULEBOOK);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[Onboarding] loadProfileAndCompany:', e);
+      Alert.alert('Error de Conexión', `Detalle: ${msg}`);
+      setPoliciesLoadError(null);
+      setMissionVision(ONBOARDING_FALLBACK_MISSION_CULTURE);
+      setRulebook(ONBOARDING_FALLBACK_RULEBOOK);
     } finally {
       setLoading(false);
     }
-  }, [session?.user?.id, employee?.company_id, employee?.job_title_id]);
+  }, [
+    session?.user?.id,
+    employee?.company_id,
+    employee?.branch_id,
+    employee?.job_title_id,
+    profile?.company_id,
+  ]);
 
   useEffect(() => {
     loadProfileAndCompany();
   }, [loadProfileAndCompany]);
 
   useEffect(() => {
-    if (step !== 2 || !jobTitleId) return;
+    if (step !== 2 || !companyId || inductionRoute === 'skip') return;
+
+    let cancelled = false;
+    setInductionQuizLoading(true);
+    setInductionQuizLoadError(null);
+    setInductionQuizPassed(false);
+    setInductionAnswers({});
+
+    void (async () => {
+      try {
+        const { questions, errorMessage, inductionNotConfigured } =
+          await fetchInductionQuizQuestions(companyId);
+        if (cancelled) return;
+        if (errorMessage) {
+          setInductionQuestions([]);
+          setInductionQuizLoadError(errorMessage);
+          Alert.alert('Error de Conexión', `Detalle: ${errorMessage}`);
+        } else if (inductionNotConfigured) {
+          setInductionQuestions([]);
+          setInductionQuizLoadError(null);
+        } else {
+          setInductionQuestions(questions);
+          setInductionQuizLoadError(null);
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[Onboarding] quiz load:', e);
+        if (!cancelled) {
+          setInductionQuestions([]);
+          setInductionQuizLoadError(msg);
+          Alert.alert('Error de Conexión', `Detalle: ${msg}`);
+        }
+      } finally {
+        if (!cancelled) setInductionQuizLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, companyId, inductionRetryNonce, inductionRoute]);
+
+  useEffect(() => {
+    if (step !== 3 || !jobTitleId) return;
+
+    let cancelled = false;
+    setLoadingJobTitleBlock(true);
+    void (async () => {
+      try {
+        const block = await fetchJobTitleFunctionsBlock(jobTitleId);
+        if (cancelled) return;
+        setJobTitleLabel(block.titleLabel);
+        setJobTitleFunctionsDescription(block.functionsDescription);
+        if (block.errorMessage) {
+          Alert.alert('Error de Conexión', `Detalle: ${block.errorMessage}`);
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[Onboarding] job_titles block:', e);
+        if (!cancelled) {
+          Alert.alert('Error de Conexión', `Detalle: ${msg}`);
+        }
+      } finally {
+        if (!cancelled) setLoadingJobTitleBlock(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, jobTitleId]);
+
+  useEffect(() => {
+    if (step !== 3 || !jobTitleId) return;
 
     let cancelled = false;
     async function loadFns() {
@@ -214,16 +354,17 @@ export default function OnboardingScreen() {
         }
 
         if (err && !rows?.length) {
-          console.warn('job_functions onboarding:', err.message);
-          Alert.alert(
-            'Error de Conexión',
-            'No pudimos cargar las funciones del puesto. Revisa tu conexión o intenta de nuevo más tarde.'
-          );
+          console.error('API ERROR [OnboardingScreen.job_functions]:', err);
+          Alert.alert('Error de Conexión', `Detalle: ${err.message ?? 'job_functions'}`);
         }
         if (!cancelled) setJobFunctions(rows ?? []);
-      } catch (e) {
-        console.warn('job_functions onboarding ex:', e);
-        if (!cancelled) setJobFunctions([]);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[Onboarding] job_functions ex:', e);
+        if (!cancelled) {
+          setJobFunctions([]);
+          Alert.alert('Error de Conexión', `Detalle: ${msg}`);
+        }
       } finally {
         if (!cancelled) setLoadingFunctions(false);
       }
@@ -233,6 +374,26 @@ export default function OnboardingScreen() {
       cancelled = true;
     };
   }, [step, jobTitleId, companyId]);
+
+  const verifyInductionQuiz = () => {
+    if (inductionQuestions.length === 0) return;
+    const missing = inductionQuestions.some((q) => inductionAnswers[q.id] === undefined);
+    if (missing) {
+      Alert.alert('Respuestas incompletas', 'Selecciona una opción en cada pregunta.');
+      return;
+    }
+    const allCorrect = inductionQuestions.every(
+      (q) => inductionAnswers[q.id] === q.correctAnswerIndex
+    );
+    if (!allCorrect) {
+      Alert.alert(
+        'Resultado insuficiente',
+        'Revisa tus respuestas e intenta de nuevo. Debes acertar todas las preguntas clave del reglamento.'
+      );
+      return;
+    }
+    setInductionQuizPassed(true);
+  };
 
   const goNext = () => {
     if (step === 1 && policiesLoadError) {
@@ -246,10 +407,53 @@ export default function OnboardingScreen() {
       Alert.alert('Aceptación requerida', 'Debes aceptar el reglamento y términos para continuar.');
       return;
     }
+    if (step === 1 && inductionRoute === 'loading') {
+      Alert.alert(
+        'Espera un momento',
+        'Estamos verificando la inducción configurada para tu empresa (Academia).'
+      );
+      return;
+    }
+    if (step === 1 && inductionRoute === 'skip') {
+      setStep(3);
+      return;
+    }
+    if (step === 2) {
+      if (inductionQuizLoading) {
+        Alert.alert('Espera un momento', 'Estamos cargando el cuestionario de verificación.');
+        return;
+      }
+      if (inductionQuizLoadError) {
+        Alert.alert(
+          'Error al cargar el cuestionario',
+          'Revisa tu conexión o intenta de nuevo. Si el problema continúa, contacta a RRHH.'
+        );
+        return;
+      }
+      if (inductionQuestions.length === 0) {
+        Alert.alert(
+          'Cuestionario no disponible',
+          `RRHH debe publicar en Academia Virtual un curso publicado para tu empresa con categoría o tag «${ONBOARDING_ACADEMY_COURSE_CATEGORY}» e incluir un cuestionario en el primer módulo.`,
+          [{ text: 'Entendido' }]
+        );
+        return;
+      }
+      if (!inductionQuizPassed) {
+        Alert.alert(
+          'Verificación pendiente',
+          'Responde el cuestionario y pulsa «Comprobar respuestas» hasta aprobar todas las preguntas.'
+        );
+        return;
+      }
+    }
     if (step < STEPS - 1) setStep((s) => s + 1);
   };
 
   const goBack = () => {
+    if (step === 3 && inductionRoute === 'skip') {
+      setStep(1);
+      return;
+    }
     if (step > 0) setStep((s) => s - 1);
   };
 
@@ -257,7 +461,11 @@ export default function OnboardingScreen() {
     if (finishing || !userId) return;
     setFinishing(true);
     try {
-      await runOnboardingCompletion(userId, companyId, employee?.id ?? null);
+      await runOnboardingCompletion(
+        userId,
+        companyId ?? profile?.company_id ?? null,
+        employee?.id ?? null
+      );
       releaseToMainApp();
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as Error).message) : String(e);
@@ -266,6 +474,15 @@ export default function OnboardingScreen() {
       setFinishing(false);
     }
   };
+
+  const quizNextDisabled =
+    step === 2 &&
+    (inductionRoute === 'skip' ||
+      inductionRoute === 'loading' ||
+      inductionQuizLoading ||
+      Boolean(inductionQuizLoadError) ||
+      inductionQuestions.length === 0 ||
+      !inductionQuizPassed);
 
   if (loading) {
     return (
@@ -353,10 +570,94 @@ export default function OnboardingScreen() {
                   : 'Confirmo que he leído y acepto el reglamento y las políticas aplicables.'}
               </Text>
             </View>
+            {inductionRoute === 'skip' ? (
+              <Text style={styles.inductionSkipNotice}>
+                Inducción no configurada por el administrador: no hay curso publicado con la categoría
+                requerida o sin cuestionario. Se omitirá el paso de verificación.
+              </Text>
+            ) : null}
           </View>
         )}
 
         {step === 2 && (
+          <View style={styles.card}>
+            <View style={styles.cardIconWrap}>
+              <Ionicons name="school" size={36} color={theme.primary} />
+            </View>
+            <Text style={styles.cardTitle}>Verificación de lectura (Academia)</Text>
+            <Text style={styles.cardBodyMuted}>
+              Responde el cuestionario vinculado al curso de inducción obligatoria en Academia Virtual. Debes
+              acertar todas las preguntas para continuar.
+            </Text>
+            {inductionQuizLoading ? (
+              <ActivityIndicator style={{ marginTop: 16 }} color={theme.primary} />
+            ) : inductionQuizLoadError ? (
+              <View style={styles.policiesErrorBanner}>
+                <Ionicons name="cloud-offline-outline" size={24} color="#B45309" />
+                <Text style={styles.policiesErrorTitle}>No se pudo cargar el cuestionario</Text>
+                <Text style={styles.policiesErrorBody}>{inductionQuizLoadError}</Text>
+                <TouchableOpacity
+                  style={styles.policiesRetryBtn}
+                  activeOpacity={0.85}
+                  onPress={() => setInductionRetryNonce((n) => n + 1)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Reintentar cuestionario"
+                >
+                  <Text style={styles.policiesRetryLabel}>Reintentar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : inductionQuestions.length === 0 ? (
+              <Text style={[styles.cardBodyMuted, { marginTop: 12 }]}>
+                {`No hay cuestionario publicado. RRHH debe crear en Academia un curso para tu empresa, categoría o tag «${ONBOARDING_ACADEMY_COURSE_CATEGORY}», publicado, con quiz en el primer módulo.`}
+              </Text>
+            ) : (
+              <View style={{ marginTop: 12, gap: 16 }}>
+                {inductionQuestions.map((q, qi) => (
+                  <View key={q.id} style={[styles.quizBlock, qi > 0 && styles.quizBlockDivider]}>
+                    <Text style={styles.quizQuestionLabel}>
+                      {qi + 1}. {q.questionText}
+                    </Text>
+                    {q.options.map((opt, oi) => {
+                      const selected = inductionAnswers[q.id] === oi;
+                      return (
+                        <TouchableOpacity
+                          key={`${q.id}-${oi}`}
+                          style={[styles.quizOption, selected && styles.quizOptionSelected]}
+                          activeOpacity={0.85}
+                          onPress={() =>
+                            setInductionAnswers((prev) => ({
+                              ...prev,
+                              [q.id]: oi,
+                            }))
+                          }
+                        >
+                          <Ionicons
+                            name={selected ? 'radio-button-on' : 'radio-button-off'}
+                            size={20}
+                            color={selected ? theme.primary : theme.textMuted}
+                          />
+                          <Text style={styles.quizOptionText}>{opt}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ))}
+                {inductionQuizPassed ? (
+                  <View style={styles.quizPassedBanner}>
+                    <Ionicons name="checkmark-circle" size={22} color="#047857" />
+                    <Text style={styles.quizPassedText}>Cuestionario aprobado. Puedes continuar.</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.quizVerifyBtn} activeOpacity={0.88} onPress={verifyInductionQuiz}>
+                    <Text style={styles.quizVerifyBtnText}>Comprobar respuestas</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
+        {step === 3 && (
           <View style={styles.card}>
             <View style={styles.cardIconWrap}>
               <Ionicons name="briefcase" size={36} color={theme.primary} />
@@ -366,26 +667,35 @@ export default function OnboardingScreen() {
               <Text style={styles.cardBodyMuted}>
                 Aún no tienes un puesto asignado. Tu gerente puede actualizarlo en RRHH.
               </Text>
-            ) : loadingFunctions ? (
+            ) : loadingJobTitleBlock || loadingFunctions ? (
               <ActivityIndicator style={{ marginTop: 16 }} color={theme.primary} />
-            ) : jobFunctions.length === 0 ? (
-              <Text style={styles.cardBodyMuted}>
-                No hay funciones registradas para tu puesto. Puedes continuar con el siguiente paso.
-              </Text>
             ) : (
-              <View style={styles.fnList}>
-                {jobFunctions.map((row, idx) => (
-                  <View key={idx} style={styles.fnItem}>
-                    <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
-                    <Text style={styles.fnText}>{formatJobFunctionRow(row)}</Text>
+              <>
+                {jobTitleLabel ? (
+                  <Text style={[styles.cardBody, { marginBottom: 10, fontWeight: '700' }]}>{jobTitleLabel}</Text>
+                ) : null}
+                {jobTitleFunctionsDescription ? (
+                  <Text style={styles.cardBody}>{jobTitleFunctionsDescription}</Text>
+                ) : null}
+                {jobFunctions.length > 0 ? (
+                  <View style={[styles.fnList, { marginTop: jobTitleFunctionsDescription ? 16 : 8 }]}>
+                    {jobFunctions.map((row, idx) => (
+                      <View key={idx} style={styles.fnItem}>
+                        <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
+                        <Text style={styles.fnText}>{formatJobFunctionRow(row)}</Text>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
+                ) : null}
+                {!jobTitleFunctionsDescription && jobFunctions.length === 0 ? (
+                  <Text style={[styles.cardBodyMuted, { marginTop: 12 }]}>{MIS_FUNCIONES_FALLBACK_MSG}</Text>
+                ) : null}
+              </>
             )}
           </View>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <View style={styles.card}>
             <View style={styles.cardIconWrap}>
               <Ionicons name="gift" size={40} color={theme.warning} />
@@ -410,7 +720,7 @@ export default function OnboardingScreen() {
         )}
       </ScrollView>
 
-      {step < 3 && (
+      {step < 4 && (
         <View style={styles.footer}>
           <TouchableOpacity
             style={[styles.navBtn, styles.navBtnGhost, step === 0 && styles.navBtnHidden]}
@@ -422,18 +732,18 @@ export default function OnboardingScreen() {
           <TouchableOpacity
             style={[
               styles.navBtn,
-              step === 1 && policiesLoadError ? styles.navBtnDisabled : null,
+              (step === 1 && policiesLoadError) || quizNextDisabled ? styles.navBtnDisabled : null,
             ]}
             onPress={goNext}
             activeOpacity={0.88}
-            disabled={step === 1 && Boolean(policiesLoadError)}
+            disabled={(step === 1 && Boolean(policiesLoadError)) || quizNextDisabled}
           >
             <Text style={styles.navBtnText}>Siguiente</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <View style={styles.footerSingle}>
           <TouchableOpacity style={styles.navBtnGhostWide} onPress={goBack} activeOpacity={0.88}>
             <Text style={styles.navBtnGhostText}>Volver</Text>
@@ -490,6 +800,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: theme.textSecondary,
+  },
+  inductionSkipNotice: {
+    marginTop: 14,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+    color: '#B45309',
   },
   body: {
     flex: 1,
@@ -671,5 +988,73 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingVertical: 12,
     paddingHorizontal: 24,
+  },
+  quizBlock: {
+    paddingTop: 4,
+  },
+  quizBlockDivider: {
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    paddingTop: 16,
+    marginTop: 4,
+  },
+  quizQuestionLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.textPrimary,
+    marginBottom: 10,
+    lineHeight: 22,
+  },
+  quizOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.border,
+    marginBottom: 8,
+    backgroundColor: theme.background,
+  },
+  quizOptionSelected: {
+    borderColor: theme.primary,
+    backgroundColor: 'rgba(0, 194, 209, 0.08)',
+  },
+  quizOptionText: {
+    flex: 1,
+    fontSize: 14,
+    color: theme.textSecondary,
+    fontWeight: '500',
+    lineHeight: 20,
+  },
+  quizVerifyBtn: {
+    marginTop: 8,
+    backgroundColor: theme.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  quizVerifyBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  quizPassedBanner: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  quizPassedText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#065F46',
   },
 });

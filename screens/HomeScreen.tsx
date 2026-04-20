@@ -219,7 +219,8 @@ function assertInsideGeofence(
 
 export default function HomeScreen() {
   const navigation = useNavigation<TabCompositeNavigation<'Home'>>();
-  const { session, authProfile, employee, refreshProfile } = useAuth();
+  const { session, authProfile, employee, refreshProfile, isOperativeEmployee } = useAuth();
+  const employeeGpsConsent = employee?.is_gps_tracking_enabled === true;
   const employeeRecordId = employee?.id ?? null;
   const [perfil, setPerfil] = useState<HomePerfil | null>(null);
   const [isLoadingPerfil, setIsLoadingPerfil] = useState(true);
@@ -450,12 +451,14 @@ export default function HomeScreen() {
   }, [employeeRecordId, companyId, refreshPauseState]);
 
   /**
-   * Telemetría en vivo (`live_locations`): solo con turno activo y consentimiento en `profiles`
-   * (paridad con Mi Portal web). El intervalo respeta `gps_refresh_rate_seconds` con clamp.
+   * Telemetría en vivo (`live_locations`): solo con expediente, turno activo y consentimiento en `employees`.
+   * `requires_live_tracking` se expone en el expediente; el envío exige consentimiento explícito (`is_gps_tracking_enabled`).
+   * El intervalo respeta `gps_refresh_rate_seconds` del expediente con clamp.
    */
   useEffect(() => {
-    const trackingOk = authProfile?.is_gps_tracking_enabled === true;
+    const trackingOk = employeeGpsConsent;
     const canSend =
+      isOperativeEmployee &&
       trackingOk &&
       isClockedIn &&
       !!activeTimeEntryId &&
@@ -465,7 +468,8 @@ export default function HomeScreen() {
     console.log('[GPS diagnóstico] condición envío', {
       isClockedIn,
       activeTimeEntryId,
-      is_gps_tracking_enabled: authProfile?.is_gps_tracking_enabled,
+      is_gps_tracking_enabled: employee?.is_gps_tracking_enabled,
+      requires_live_tracking: employee?.requires_live_tracking,
       trackingOk,
       companyId: companyId ?? null,
       employeeRecordId: employeeRecordId ?? null,
@@ -525,7 +529,7 @@ export default function HomeScreen() {
 
     void sendLiveLocation();
 
-    const ms = resolveGpsPollingIntervalMs(authProfile?.gps_refresh_rate_seconds ?? undefined);
+    const ms = resolveGpsPollingIntervalMs(employee?.gps_refresh_rate_seconds ?? undefined);
     gpsIntervalRef.current = setInterval(() => {
       void sendLiveLocation();
     }, ms);
@@ -537,8 +541,9 @@ export default function HomeScreen() {
       }
     };
   }, [
-    authProfile?.is_gps_tracking_enabled,
-    authProfile?.gps_refresh_rate_seconds,
+    isOperativeEmployee,
+    employeeGpsConsent,
+    employee?.gps_refresh_rate_seconds,
     isClockedIn,
     activeTimeEntryId,
     companyId,

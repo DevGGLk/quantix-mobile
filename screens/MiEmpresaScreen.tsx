@@ -21,6 +21,12 @@ type Company = {
   corporate_values: string | null;
 };
 
+type BranchAdnRow = {
+  mission: string | null;
+  vision: string | null;
+  corporate_values: string | null;
+};
+
 type EmployeeRow = {
   id: string;
   first_name: string | null;
@@ -43,6 +49,91 @@ type OrgNode = {
 
 function normalizeText(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+/** Prioridad: sucursal → columnas de empresa → `companies.settings` (paridad con web). */
+function coalesceAdnField(...candidates: unknown[]): string | null {
+  for (const v of candidates) {
+    const t = normalizeText(v);
+    if (t.length > 0) return t;
+  }
+  return null;
+}
+
+function embeddedJobTitleName(raw: unknown): string | null {
+  if (raw == null) return null;
+  const one = Array.isArray(raw) ? raw[0] : raw;
+  if (one && typeof one === 'object' && 'name' in one) {
+    return normalizeText((one as { name?: unknown }).name) || null;
+  }
+  return null;
+}
+
+/**
+ * Carga empleados de la empresa y resuelve el nombre del cargo: contrato activo (`employment_contracts` + `job_titles`)
+ * y, si no hay contrato con título, `employees.job_title_id` → `job_titles`.
+ */
+async function fetchEmployeesWithResolvedJobTitles(companyId: string): Promise<EmployeeRow[]> {
+  const empRes = await supabase
+    .from('employees')
+    .select('id, first_name, last_name, avatar_url, job_title_id, reports_to, manager_id')
+    .eq('company_id', companyId)
+    .eq('employment_status', 'active')
+    .order('last_name', { ascending: true });
+
+  if (empRes.error) throw empRes.error;
+
+  const rows = (empRes.data ?? []) as Omit<EmployeeRow, 'job_titles'>[];
+
+  const cargoByEmployeeId = new Map<string, string>();
+
+  const contractsRes = await supabase
+    .from('employment_contracts')
+    .select('employee_id, job_titles(name), created_at')
+    .eq('company_id', companyId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false });
+
+  if (!contractsRes.error && contractsRes.data) {
+    for (const row of contractsRes.data as { employee_id?: string; job_titles?: unknown }[]) {
+      const eid = normalizeText(row.employee_id);
+      if (!eid || cargoByEmployeeId.has(eid)) continue;
+      const nm = embeddedJobTitleName(row.job_titles);
+      if (nm) cargoByEmployeeId.set(eid, nm);
+    }
+  }
+
+  const missingTitleIds = new Set<string>();
+  for (const r of rows) {
+    const id = String(r.id);
+    if (!cargoByEmployeeId.has(id) && r.job_title_id) {
+      missingTitleIds.add(String(r.job_title_id));
+    }
+  }
+
+  const titleById = new Map<string, string>();
+  if (missingTitleIds.size > 0) {
+    const jtRes = await supabase.from('job_titles').select('id, name').in('id', [...missingTitleIds]);
+    if (!jtRes.error && jtRes.data) {
+      for (const t of jtRes.data as { id: string; name?: string | null }[]) {
+        const id = String(t.id);
+        const nm = normalizeText(t.name);
+        if (nm) titleById.set(id, nm);
+      }
+    }
+  }
+
+  return rows.map((r) => {
+    const id = String(r.id);
+    const fromContract = cargoByEmployeeId.get(id);
+    const jid = r.job_title_id ? String(r.job_title_id) : '';
+    const fromEmployeeTitle = jid ? titleById.get(jid) : undefined;
+    const label = fromContract || fromEmployeeTitle || '';
+    return {
+      ...r,
+      job_titles: label ? { name: label } : null,
+    };
+  });
 }
 
 function buildOrgTree(rows: EmployeeRow[]): OrgNode[] {
@@ -99,51 +190,70 @@ export default function MiEmpresaScreen() {
         setIsLoading(true);
 
         const companyId = employee?.company_id ?? null;
+        const branchId = employee?.branch_id?.trim() || null;
         if (!companyId) {
-          if (isMounted) setCompany(null);
+          if (isMounted) {
+            setCompany(null);
+            setEmployeesFlat([]);
+          }
           return;
         }
 
-        const [companyRes, employeesRes] = await Promise.all([
-          supabase
-            .from('companies')
-            .select('name, logo_url, mission, vision, corporate_values')
-            .eq('id', companyId)
-            .maybeSingle(),
-          (async () => {
-            const full = await supabase
-              .from('employees')
-              .select(
-                'id, first_name, last_name, avatar_url, job_title_id, reports_to, manager_id, job_titles(name)'
-              )
-              .eq('company_id', companyId)
-              .order('last_name', { ascending: true });
-            if (!full.error) return full;
-            const minimal = await supabase
-              .from('employees')
-              .select('id, first_name, last_name, job_title_id')
-              .eq('company_id', companyId)
-              .order('last_name', { ascending: true });
-            return minimal;
-          })(),
+        const companyResPromise = supabase
+          .from('companies')
+          .select('name, logo_url, mission, vision, corporate_values, settings')
+          .eq('id', companyId)
+          .maybeSingle();
+
+        const branchResPromise =
+          branchId != null
+            ? supabase
+                .from('branches')
+                .select('mission, vision, corporate_values')
+                .eq('id', branchId)
+                .eq('company_id', companyId)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null as null });
+
+        const [companyRes, branchRes, employeesFlatResolved] = await Promise.all([
+          companyResPromise,
+          branchResPromise,
+          fetchEmployeesWithResolvedJobTitles(companyId),
         ]);
 
         if (companyRes.error) throw companyRes.error;
-        if (employeesRes.error) throw employeesRes.error;
+        if (branchRes.error) throw branchRes.error;
 
         if (!isMounted) return;
 
         const row = (companyRes.data ?? null) as Record<string, unknown> | null;
+        const settings =
+          row?.settings != null && typeof row.settings === 'object'
+            ? (row.settings as Record<string, unknown>)
+            : {};
+        const branchRow = (branchRes.data ?? null) as BranchAdnRow | null;
+
+        const mission = coalesceAdnField(
+          branchRow?.mission,
+          row?.mission,
+          settings.mission
+        );
+        const vision = coalesceAdnField(branchRow?.vision, row?.vision, settings.vision);
+        const corporate_values = coalesceAdnField(
+          branchRow?.corporate_values,
+          row?.corporate_values,
+          settings.values
+        );
+
         setCompany({
           name: typeof row?.name === 'string' ? row.name : null,
           logo_url: typeof row?.logo_url === 'string' ? row.logo_url : null,
-          mission: typeof row?.mission === 'string' ? row.mission : null,
-          vision: typeof row?.vision === 'string' ? row.vision : null,
-          corporate_values:
-            typeof row?.corporate_values === 'string' ? row.corporate_values : null,
+          mission,
+          vision,
+          corporate_values,
         });
 
-        setEmployeesFlat((employeesRes.data ?? []) as EmployeeRow[]);
+        setEmployeesFlat(employeesFlatResolved);
       } catch (e) {
         console.error('Error cargando MiEmpresa:', e);
         if (isMounted) {
@@ -163,7 +273,7 @@ export default function MiEmpresaScreen() {
     return () => {
       isMounted = false;
     };
-  }, [employee?.company_id]);
+  }, [employee?.company_id, employee?.branch_id]);
 
   const cards = useMemo(() => {
     const mission = normalizeText(company?.mission);

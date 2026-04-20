@@ -5,6 +5,7 @@ describe('decideOnboardingGate', () => {
     expect(
       decideOnboardingGate({
         hasSession: false,
+        isOperativeEmployee: true,
         employeeCompanyId: 'c1',
         onboardingCompleted: false,
         companyOnboardingEnabled: true,
@@ -17,7 +18,21 @@ describe('decideOnboardingGate', () => {
     expect(
       decideOnboardingGate({
         hasSession: true,
+        isOperativeEmployee: true,
         employeeCompanyId: null,
+        onboardingCompleted: false,
+        companyOnboardingEnabled: true,
+        companyFetchFailed: false,
+      })
+    ).toBe('app');
+  });
+
+  it('sin expediente operativo → app', () => {
+    expect(
+      decideOnboardingGate({
+        hasSession: true,
+        isOperativeEmployee: false,
+        employeeCompanyId: 'c1',
         onboardingCompleted: false,
         companyOnboardingEnabled: true,
         companyFetchFailed: false,
@@ -29,6 +44,7 @@ describe('decideOnboardingGate', () => {
     expect(
       decideOnboardingGate({
         hasSession: true,
+        isOperativeEmployee: true,
         employeeCompanyId: 'c1',
         onboardingCompleted: false,
         companyOnboardingEnabled: null,
@@ -41,6 +57,7 @@ describe('decideOnboardingGate', () => {
     expect(
       decideOnboardingGate({
         hasSession: true,
+        isOperativeEmployee: true,
         employeeCompanyId: 'c1',
         onboardingCompleted: false,
         companyOnboardingEnabled: true,
@@ -53,6 +70,7 @@ describe('decideOnboardingGate', () => {
     expect(
       decideOnboardingGate({
         hasSession: true,
+        isOperativeEmployee: true,
         employeeCompanyId: 'c1',
         onboardingCompleted: true,
         companyOnboardingEnabled: true,
@@ -65,6 +83,7 @@ describe('decideOnboardingGate', () => {
     expect(
       decideOnboardingGate({
         hasSession: true,
+        isOperativeEmployee: true,
         employeeCompanyId: 'c1',
         onboardingCompleted: false,
         companyOnboardingEnabled: false,

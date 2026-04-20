@@ -8,6 +8,8 @@ export type CopaLevelVisualState = 'locked' | 'current' | 'achieved';
 export type CopaTier = {
   name: string;
   threshold: number;
+  /** Meta antes del prorrateo por temporada corta; por defecto = `threshold` antes de multiplicar. */
+  thresholdBase?: number;
   imageSrc: string;
   /** Texto informativo desde `gamification_cup_levels.reward_text` (opcional). */
   rewardText?: string | null;
@@ -16,6 +18,7 @@ export type CopaTier = {
 export type CopaPathLevelStep = {
   name: string;
   threshold: number;
+  thresholdBase?: number | null;
   imageSrc: string;
   rewardText?: string | null;
   state: CopaLevelVisualState;
@@ -71,10 +74,14 @@ export function computeCopaSeasonMultiplier(
 }
 
 export function applyCopaThresholdMultiplier(levels: CopaTier[], multiplier: number): CopaTier[] {
-  return levels.map((tier) => ({
-    ...tier,
-    threshold: Math.round(tier.threshold * multiplier),
-  }));
+  return levels.map((tier) => {
+    const base = tier.thresholdBase ?? tier.threshold;
+    return {
+      ...tier,
+      thresholdBase: base,
+      threshold: Math.round(base * multiplier),
+    };
+  });
 }
 
 function buildCopaPathLevelSteps(sorted: CopaTier[], earned: number): CopaPathLevelStep[] {
@@ -97,6 +104,7 @@ function buildCopaPathLevelSteps(sorted: CopaTier[], earned: number): CopaPathLe
     return {
       name: t.name,
       threshold: t.threshold,
+      thresholdBase: t.thresholdBase ?? t.threshold,
       imageSrc: t.imageSrc,
       rewardText: t.rewardText ?? null,
       state,

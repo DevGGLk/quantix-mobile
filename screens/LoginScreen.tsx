@@ -12,6 +12,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
 import { getPasswordRecoveryRedirectUrl } from '../lib/authRedirect';
 import { supabase } from '../lib/supabase';
@@ -25,6 +26,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const passwordRef = useRef<TextInput>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
@@ -142,20 +144,36 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             onSubmitEditing={() => passwordRef.current?.focus()}
           />
 
-          <TextInput
-            ref={passwordRef}
-            style={styles.input}
-            placeholder="Contraseña"
-            placeholderTextColor="#94a3b8"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            editable={!isLoading}
-            returnKeyType="go"
-            onSubmitEditing={() => {
-              if (!isLoading) void handleLogin();
-            }}
-          />
+          <View style={styles.passwordRow}>
+            <TextInput
+              ref={passwordRef}
+              style={styles.passwordInput}
+              placeholder="Contraseña"
+              placeholderTextColor="#94a3b8"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              editable={!isLoading}
+              returnKeyType="go"
+              onSubmitEditing={() => {
+                if (!isLoading) void handleLogin();
+              }}
+            />
+            <TouchableOpacity
+              style={styles.passwordToggle}
+              onPress={() => setShowPassword((v) => !v)}
+              disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={22}
+                color="#64748b"
+              />
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
             style={[styles.button, isLoading && styles.buttonDisabled]}
@@ -276,6 +294,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#0f172a',
     marginBottom: 16,
+  },
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    marginBottom: 16,
+    paddingRight: 6,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#0f172a',
+  },
+  passwordToggle: {
+    padding: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   button: {
     backgroundColor: theme.primary,

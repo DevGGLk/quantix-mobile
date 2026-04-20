@@ -26,13 +26,35 @@ export async function assignGamificationPointsRpc(input: {
     return { error: null };
   }
 
-  const { error } = await supabase.rpc('assign_gamification_points', {
+  const common = {
     p_company_id: companyId,
     p_employee_id: employeeId,
-    p_amount: amount,
     p_description: description,
     p_transaction_type: input.transactionType ?? 'earned',
+  } as const;
+
+  let { error } = await supabase.rpc('assign_gamification_points', {
+    ...common,
+    p_amount: amount,
   });
+
+  // RPCs o dumps antiguos: firma con `p_points` o INSERT interno que aún referencia `points` vs `amount`.
+  if (error) {
+    const pe = error as { code?: string; message?: string; details?: string | null };
+    const blob = `${pe.message ?? ''} ${pe.details ?? ''}`;
+    const tryLegacy =
+      pe.code === '42883' ||
+      /\bp_amount\b|\bp_points\b|assign_gamification_points|column .*"\s*points\s*"|column .*points.*does not exist|column .*amount.*does not exist/i.test(
+        blob
+      );
+    if (tryLegacy) {
+      const second = await supabase.rpc('assign_gamification_points', {
+        ...common,
+        p_points: amount,
+      } as Record<string, string | number>);
+      error = second.error;
+    }
+  }
 
   return { error: error ? { message: error.message } : null };
 }

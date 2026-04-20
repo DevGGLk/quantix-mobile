@@ -2,7 +2,31 @@
 
 Historial de cambios del cliente **React Native / Expo** (`quantix-mobile`).
 
+## 2026-04-18
+
+- **2026-04-18:** **Arquitectura/Identidad:** Implementada la carga de Misión y Visión por Sucursal (Branch-level) para soportar múltiples marcas bajo un mismo holding.
+
+- **2026-04-18:** **Fix/Mobile:** La lectura de Cultura (Misión/Visión) ahora prioriza la tabla `branches` (Sucursales) alineándose con la arquitectura de guardado del panel web.
+
+- **2026-04-18:** **Fix/Mobile:** Corregido el payload de gamificación para coincidir con el esquema real de la base de datos. Ajustado el mapeo de columnas para la lectura de la Misión y Visión corporativa.
+
+- **2026-04-18:** **Arquitectura:** Corregida la fuga de conceptos. El Onboarding y el GPS ahora son exclusivos de la entidad `Employee`. Los perfiles administrativos tienen acceso directo sin restricciones operativas.
+
+- **2026-04-18:** **Refactor/Arquitectura:** Restaurada la separación estricta entre Profiles (Acceso) y Employees (Laboral). Los usuarios administrativos/externos ahora saltan la inducción operativa y el rastreo GPS automáticamente.
+
+- **2026-04-18:** **Refactor/Multi-tenant:** Dinamizada la detección del curso de inducción. Ahora el sistema identifica automáticamente el contenido basado en la empresa del colaborador.
+
+- **2026-04-18:** **Fix/Mobile:** Inyectada telemetría y UI defensiva en Onboarding para diagnosticar fallos silenciosos de RLS y caché.
+
+- **2026-04-18:** **Fix/Mobile:** Sincronizado Onboarding con el curso real de Academia. Reparado mapeo de columnas en la tabla `profiles` para cierre de inducción.
+
+- **2026-04-18:** **Fix/Mobile:** Reparado error crítico de base de datos que bloqueaba el final del onboarding. Implementado Quiz de validación de lectura en inducción obligatoria conectando con la Academia. Vinculada pantalla de Mis Funciones con la base de datos de Cargos. Añadido control de visibilidad de contraseña en login.
+
 ## 2026-04-14
+
+- **2026-04-14:** **Fix/Mobile:** Pantalla Mi Empresa actualizada para soportar ADN Multi-Concepto (por sucursal) y mostrar correctamente los cargos relacionales.
+
+- **2026-04-14:** **UX/Gamificación:** El modal de copas ahora explica claramente al empleado cuando su meta ha sido prorrateada por la regla de Temporada Corta.
 
 - **2026-04-14:** **Feat/Mobile:** Implementados modales informativos en el Camino de Copas para mostrar metas y recompensas al tocar los niveles.
 

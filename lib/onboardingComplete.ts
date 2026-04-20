@@ -55,15 +55,31 @@ export async function completeOnboardingFallback(
   profileUserId: string,
   employeeRowId: string | null
 ): Promise<void> {
-  const { error: upErr } = await supabase
-    .from('profiles')
-    .update({ onboarding_completed: true })
-    .eq('id', profileUserId);
-  if (upErr) throw upErr;
-
   if (!employeeRowId) {
-    console.warn('onboarding fallback: sin employees.id; se omiten puntos de gamificación.');
+    console.warn(
+      '[onboardingComplete] Fallback sin expediente (`employees.id`). La inducción operativa solo aplica a empleados.',
+      { profileUserId }
+    );
     return;
+  }
+
+  try {
+    const { error: upErr } = await supabase
+      .from('employees')
+      .update({ onboarding_completed: true })
+      .eq('id', employeeRowId);
+    if (upErr) throw upErr;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[onboardingComplete] Fallo al marcar inducción en `employees`', {
+      table: 'employees',
+      column: 'onboarding_completed',
+      employeeRowId,
+      hint: 'Verifica migración y RLS de UPDATE en expedientes.',
+      message: msg,
+      raw: e,
+    });
+    throw e;
   }
 
   const { data: empRow, error: empLookupErr } = await supabase
@@ -79,6 +95,7 @@ export async function completeOnboardingFallback(
     return;
   }
 
+  /** Abono vía RPC: transacción en BD usa columna `amount` en `gamification_transactions` (ver tipos / `assignGamificationPointsRpc`). */
   const { error: rpcError } = await assignGamificationPointsRpc({
     companyId,
     employeeId: employeeRowId,
@@ -97,10 +114,23 @@ export async function runOnboardingCompletion(
   companyId: string | null,
   employeeRowId: string | null
 ): Promise<void> {
-  if (API_BASE && companyId) {
-    const api = await completeOnboardingViaApi(profileUserId, companyId);
-    if (api.ok) return;
-    console.warn('onboarding API fallback:', api.error);
+  try {
+    if (API_BASE && companyId) {
+      const api = await completeOnboardingViaApi(profileUserId, companyId);
+      if (api.ok) return;
+      console.warn('onboarding API fallback:', api.error);
+    }
+    await completeOnboardingFallback(profileUserId, employeeRowId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[runOnboardingCompletion] Error al cerrar inducción', {
+      profileUserId,
+      companyId,
+      employeeRowId,
+      apiConfigured: Boolean(API_BASE),
+      message: msg,
+      raw: e,
+    });
+    throw e;
   }
-  await completeOnboardingFallback(profileUserId, employeeRowId);
 }

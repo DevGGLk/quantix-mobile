@@ -10,6 +10,7 @@ import React, {
 import type { PostgrestError, Session } from '@supabase/supabase-js';
 
 import { supabase } from './supabase';
+import { hasOperativeEmployeeRecord } from './api';
 
 /** Evita sesiones colgadas si la red o PostgREST no responden. */
 const PROFILE_FETCH_TIMEOUT_MS = 20_000;
@@ -28,10 +29,10 @@ function withTimeout<T>(promiseLike: PromiseLike<T>, ms: number, label: string):
 }
 
 const PROFILE_COLUMNS =
-  'id, email, first_name, last_name, role, holding_id, company_id, is_gps_tracking_enabled, gps_refresh_rate_seconds';
+  'id, email, first_name, last_name, role, holding_id, company_id';
 
 const EMPLOYEE_COLUMNS =
-  'id, user_id, company_id, branch_id, department_id, job_title_id, first_name, last_name, hire_date, salary, national_id, employee_code, employment_status, created_at';
+  'id, user_id, company_id, branch_id, department_id, job_title_id, first_name, last_name, hire_date, salary, national_id, employee_code, employment_status, created_at, onboarding_completed, is_gps_tracking_enabled, requires_live_tracking, gps_refresh_rate_seconds';
 
 /** Códigos PostgREST/Postgres frecuentes al depurar RLS y `.single()`. */
 function describeSupabaseErrorCode(code: string | undefined): string | undefined {
@@ -99,18 +100,41 @@ function mapProfileRow(row: Record<string, unknown>, uid: string): ProfileRecord
     role: (row.role as string | null) ?? null,
     holding_id: (row.holding_id as string | null) ?? null,
     company_id: (row.company_id as string | null) ?? null,
-    is_gps_tracking_enabled:
-      typeof row.is_gps_tracking_enabled === 'boolean' ? row.is_gps_tracking_enabled : null,
-    gps_refresh_rate_seconds: (() => {
-      const g = row.gps_refresh_rate_seconds;
-      if (typeof g === 'number' && Number.isFinite(g)) return g;
-      if (g != null) {
-        const n = Number(g);
-        return Number.isFinite(n) ? n : null;
-      }
-      return null;
-    })(),
   };
+}
+
+function parseGpsRefreshSeconds(raw: unknown): number | null {
+  const g = raw;
+  if (typeof g === 'number' && Number.isFinite(g)) return g;
+  if (g != null) {
+    const n = Number(g);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function mergeEmployeeRealtimePatch(
+  prev: EmployeeRecord,
+  nr: Record<string, unknown>
+): EmployeeRecord {
+  const next = { ...prev };
+  if (typeof nr.onboarding_completed === 'boolean') {
+    next.onboarding_completed = nr.onboarding_completed;
+  }
+  if (typeof nr.is_gps_tracking_enabled === 'boolean') {
+    next.is_gps_tracking_enabled = nr.is_gps_tracking_enabled;
+  }
+  if (typeof nr.requires_live_tracking === 'boolean') {
+    next.requires_live_tracking = nr.requires_live_tracking;
+  }
+  if (
+    typeof nr.gps_refresh_rate_seconds === 'number' &&
+    Number.isFinite(nr.gps_refresh_rate_seconds) &&
+    nr.gps_refresh_rate_seconds >= 1
+  ) {
+    next.gps_refresh_rate_seconds = nr.gps_refresh_rate_seconds;
+  }
+  return next;
 }
 
 function pickEmployeeRow(
@@ -159,6 +183,13 @@ function mapEmployeeRow(pick: Record<string, unknown>, uid: string): EmployeeRec
         ? String(pick.hire_date as string)
         : null,
     created_at: pick.created_at != null ? String(pick.created_at as string) : null,
+    onboarding_completed:
+      typeof pick.onboarding_completed === 'boolean' ? pick.onboarding_completed : null,
+    is_gps_tracking_enabled:
+      typeof pick.is_gps_tracking_enabled === 'boolean' ? pick.is_gps_tracking_enabled : null,
+    requires_live_tracking:
+      typeof pick.requires_live_tracking === 'boolean' ? pick.requires_live_tracking : null,
+    gps_refresh_rate_seconds: parseGpsRefreshSeconds(pick.gps_refresh_rate_seconds),
   };
 }
 
@@ -172,11 +203,6 @@ export type ProfileRecord = {
   holding_id: string | null;
   /** Empresa del perfil (auth); se usa para elegir expediente si hay varios `employees`. */
   company_id: string | null;
-  onboarding_completed?: boolean | null;
-  /** Consentimiento operativo de RRHH para telemetría en vivo (`live_locations`). Paridad con Mi Portal web. */
-  is_gps_tracking_enabled?: boolean | null;
-  /** Intervalo sugerido entre pings GPS (segundos). */
-  gps_refresh_rate_seconds?: number | null;
 };
 
 /** Expediente RRHH: `id` = `employees.id` (operativo). `user_id` enlaza a `profiles` / auth. */
@@ -198,6 +224,14 @@ export type EmployeeRecord = {
   hire_date: string | null;
   /** Alta del expediente en sistema (ISO); útil si aún no existe `hire_date` en BD. */
   created_at: string | null;
+  /** Inducción operativa completada (columna en `employees`). */
+  onboarding_completed?: boolean | null;
+  /** Consentimiento de telemetría GPS (`employees`). */
+  is_gps_tracking_enabled?: boolean | null;
+  /** Política de rastreo en vivo (`employees`). */
+  requires_live_tracking?: boolean | null;
+  /** Intervalo sugerido entre pings GPS (segundos), `employees`. */
+  gps_refresh_rate_seconds?: number | null;
 };
 
 /** Valores devueltos por `refresh` / `refreshProfile` tras sincronizar con Supabase (útil p. ej. pull-to-refresh). */
@@ -215,6 +249,11 @@ export type AuthContextValue = {
   employee: EmployeeRecord | null;
   authProfile: ProfileRecord | null;
   employeeRecord: EmployeeRecord | null;
+  /**
+   * Hay expediente operativo (`employees` con id) para el usuario actual.
+   * Falso para administración/auditoría sin fila en `employees`: no aplica inducción ni GPS laboral.
+   */
+  isOperativeEmployee: boolean;
   /**
    * Mensaje si falla la carga de `profiles` y/o `employees` (red, RLS, etc.).
    * `null` cuando la sesión no aplica o la última recarga fue correcta.
@@ -270,13 +309,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  /** Paridad con Mi Portal: si RRHH cambia el flag o el intervalo, la app reacciona sin reiniciar sesión. */
+  /** Nombre en `profiles` (identidad). */
   useEffect(() => {
     const uid = session?.user?.id;
     if (!uid) return;
 
     const channel = supabase
-      .channel(`mobile-profile-gps-${uid}`)
+      .channel(`mobile-profile-names-${uid}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${uid}` },
@@ -293,16 +332,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               const t = nr.last_name.trim();
               next.last_name = t.length > 0 ? t : null;
             }
-            if (typeof nr.is_gps_tracking_enabled === 'boolean') {
-              next.is_gps_tracking_enabled = nr.is_gps_tracking_enabled;
-            }
-            if (
-              typeof nr.gps_refresh_rate_seconds === 'number' &&
-              Number.isFinite(nr.gps_refresh_rate_seconds) &&
-              nr.gps_refresh_rate_seconds >= 1
-            ) {
-              next.gps_refresh_rate_seconds = nr.gps_refresh_rate_seconds;
-            }
             return next;
           });
         }
@@ -313,6 +342,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       void supabase.removeChannel(channel);
     };
   }, [session?.user?.id]);
+
+  /** Inducción / GPS leen desde `employees` (expediente). */
+  useEffect(() => {
+    const uid = session?.user?.id;
+    const eid = employee?.id ?? null;
+    if (!uid || !eid) return;
+
+    const channel = supabase
+      .channel(`mobile-employee-op-${eid}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'employees', filter: `id=eq.${eid}` },
+        (payload) => {
+          const nr = payload.new as Record<string, unknown>;
+          setEmployee((prev) => {
+            if (!prev || prev.id !== eid) return prev;
+            return mergeEmployeeRealtimePatch(prev, nr);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id, employee?.id]);
 
   const refresh = useCallback(async (): Promise<AuthRecordsSnapshot | null> => {
     const uid = session?.user?.id ?? null;
@@ -462,7 +517,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         nextEmployee = mapEmployeeRow(employeePick, uid);
       }
 
-      /** Si `profiles.company_id` viene vacío pero el expediente sí tiene empresa, hidratar el perfil en memoria (noticias, GPS, RLS). */
+      /** Si `profiles.company_id` viene vacío pero el expediente sí tiene empresa, hidratar el perfil en memoria (noticias, RLS). */
       let profileForState = nextProfile;
       if (profileForState && nextEmployee?.company_id) {
         const pc = profileForState.company_id;
@@ -501,7 +556,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (!profileForState.company_id && !nextEmployee) {
         setRecordsError(ORPHAN_COMPANY_MSG);
       } else if (profileForState.company_id && !nextEmployee) {
-        setRecordsError(ORPHAN_EMPLOYEE_MSG);
+        // Perfil con empresa pero sin expediente: cuentas administrativas / externas (acceso válido).
+        setRecordsError(null);
       } else {
         setRecordsError(null);
       }
@@ -540,6 +596,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       employee,
       authProfile: profile,
       employeeRecord: employee,
+      isOperativeEmployee: hasOperativeEmployeeRecord(employee),
       recordsError,
       refresh,
       refreshProfile: refresh,

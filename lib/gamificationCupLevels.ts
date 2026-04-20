@@ -26,9 +26,11 @@ export function mapCupLevelRowsToCopaTiers(rows: GamificationCupLevelRow[]): Cop
     const fallback = DEFAULT_COPA_LEVELS[Math.min(idx, DEFAULT_COPA_LEVELS.length - 1)]!;
     const img = r.image_src?.trim();
     const reward = (r.reward_text ?? '').trim();
+    const pts = Math.max(1, Math.floor(Number(r.points_required) || 0));
     return {
       name: r.name.trim() || fallback.name,
-      threshold: Math.max(1, Math.floor(Number(r.points_required) || 0)),
+      threshold: pts,
+      thresholdBase: pts,
       imageSrc: img && img.length > 0 ? img : fallback.imageSrc,
       rewardText: reward.length > 0 ? reward : null,
     };

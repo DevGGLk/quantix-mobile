@@ -27,6 +27,19 @@ export type Database = {
           first_name: string | null;
           last_name: string | null;
           salary: number | null;
+          onboarding_completed: boolean | null;
+          is_gps_tracking_enabled: boolean | null;
+          requires_live_tracking: boolean | null;
+          gps_refresh_rate_seconds: number | null;
+        };
+      };
+      job_titles: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          name: string | null;
+          title: string | null;
+          functions_description: string | null;
         };
       };
       badge_catalogue: {
@@ -47,6 +60,18 @@ export type Database = {
           badge_id: string;
           employee_id: string;
           points_awarded: number | null;
+        };
+      };
+      /** Ledger: columna `amount` (no `points`). Escritura vía RPC `assign_gamification_points`. */
+      gamification_transactions: {
+        Row: {
+          id: string;
+          employee_id: string | null;
+          company_id: string | null;
+          amount: number | null;
+          description: string | null;
+          transaction_type: string | null;
+          created_at: string | null;
         };
       };
       // (El resto de tablas se tipan bajo demanda)
