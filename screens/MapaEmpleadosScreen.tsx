@@ -1,11 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, Platform, Alert } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, StyleSheet, ActivityIndicator, Text, Alert } from 'react-native';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
-import { MAP_REGION_WORLD_OVERVIEW, resolveAdminMapInitialRegion } from '../lib/mapInitialRegion';
+import { MAP_REGION_WORLD_OVERVIEW, resolveAdminMapInitialRegion, type Region } from '../lib/mapInitialRegion';
 import { useAuth } from '../lib/AuthContext';
+import { useAdminScope } from '../lib/AdminScopeContext';
+import AdminScopeSelector from '../components/AdminScopeSelector';
 
 type Profile = { first_name?: string | null; last_name?: string | null } | null;
 
@@ -46,23 +48,70 @@ function parseCoords(telemetry: TimeEntryRow['telemetry']): { lat: number; lon: 
 
 function formatClockIn(clockIn: string): string {
   try {
-    return new Date(clockIn).toLocaleTimeString('es', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return new Date(clockIn).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
   } catch {
     return clockIn;
   }
 }
 
+function zoomFromDelta(latitudeDelta: number): number {
+  if (!Number.isFinite(latitudeDelta) || latitudeDelta <= 0) return 3;
+  return Math.max(2, Math.min(16, Math.round(Math.log2(360 / latitudeDelta))));
+}
+
+/** HTML estático con Leaflet/OpenStreetMap (sin API key). Los marcadores se inyectan vía window.__render. */
+const LEAFLET_HTML = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>html,body,#map{height:100%;margin:0;padding:0;background:#aadaff;}</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  var map, layer;
+  function post(m){ if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(m); }
+  function esc(s){ return String(s == null ? '' : s).replace(/[<>&"]/g, function(c){ return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]; }); }
+  function init(){
+    if (typeof L === 'undefined'){ setTimeout(init, 80); return; }
+    if (map) return;
+    map = L.map('map', { zoomControl: true }).setView([15, -25], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    layer = L.layerGroup().addTo(map);
+    post('ready');
+  }
+  window.__render = function(p){
+    if (!map) return;
+    layer.clearLayers();
+    var pts = [];
+    (p.markers || []).forEach(function(m){
+      var mk = L.marker([m.lat, m.lng]).addTo(layer);
+      mk.bindPopup('<b>' + esc(m.name) + '</b><br/>Entrada: ' + esc(m.clockIn));
+      pts.push([m.lat, m.lng]);
+    });
+    if (pts.length === 1) { map.setView(pts[0], 15); }
+    else if (pts.length > 1) { map.fitBounds(pts, { padding: [40, 40] }); }
+    else if (p.center) { map.setView([p.center[0], p.center[1]], p.zoom || 3); }
+  };
+  document.addEventListener('DOMContentLoaded', init);
+  init();
+</script>
+</body>
+</html>`;
+
 export default function MapaEmpleadosScreen() {
   const insets = useSafeAreaInsets();
-  const { session, profile, employee } = useAuth();
+  const { session, canAccessAdminPanel } = useAuth();
+  const { companyId, branchId } = useAdminScope();
   const [employees, setEmployees] = useState<ActiveEmployee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [unauthorized, setUnauthorized] = useState(false);
-  const [initialMapRegion, setInitialMapRegion] = useState(MAP_REGION_WORLD_OVERVIEW);
-  const mapRef = useRef<MapView | null>(null);
+  const [initialMapRegion, setInitialMapRegion] = useState<Region>(MAP_REGION_WORLD_OVERVIEW);
+  const webRef = useRef<WebView | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -81,9 +130,7 @@ export default function MapaEmpleadosScreen() {
           return;
         }
 
-        const companyId = employee?.company_id ?? null;
-        const role = String(profile?.role ?? '').toLowerCase();
-        const allowed = role === 'admin' || role === 'manager' || role === 'superadmin';
+        const allowed = canAccessAdminPanel;
         if (!allowed) {
           if (isMounted) {
             setUnauthorized(true);
@@ -100,7 +147,6 @@ export default function MapaEmpleadosScreen() {
           return;
         }
 
-        const branchId = employee?.branch_id ?? null;
         let branchRow: Record<string, unknown> | null = null;
         if (branchId) {
           const { data: brData, error: brErr } = await supabase
@@ -117,7 +163,7 @@ export default function MapaEmpleadosScreen() {
         const nextRegion = await resolveAdminMapInitialRegion(branchRow);
         if (isMounted) setInitialMapRegion(nextRegion);
 
-        // CRÍTICO: scope estricto por company_id del visor (solo su empresa)
+        // Scope por la empresa seleccionada; el filtro de sucursal se aplica al resolver empleados.
         const { data, error } = await supabase
           .from('time_entries')
           .select('id, employee_id, clock_in, telemetry')
@@ -130,30 +176,31 @@ export default function MapaEmpleadosScreen() {
         const list: ActiveEmployee[] = [];
 
         const ids = rows.map((r) => r.employee_id).filter(Boolean);
-        let empRows: { id?: string; first_name?: string | null; last_name?: string | null }[] = [];
+        let empRows: { id?: string; first_name?: string | null; last_name?: string | null; branch_id?: string | null }[] = [];
         if (ids.length > 0) {
-          const { data, error: empNameErr } = await supabase
+          const { data: empData, error: empNameErr } = await supabase
             .from('employees')
-            .select('id, first_name, last_name')
+            .select('id, first_name, last_name, branch_id')
             .eq('company_id', companyId)
             .in('id', ids);
           if (empNameErr) throw empNameErr;
-          empRows = (data ?? []) as typeof empRows;
+          empRows = (empData ?? []) as typeof empRows;
         }
         const nameById = new Map<string, string>();
+        const branchByEmp = new Map<string, string | null>();
         for (const r of empRows) {
           const id = String(r?.id ?? '');
-          const name =
-            [r?.first_name, r?.last_name].filter(Boolean).join(' ') || 'Empleado';
-          if (id) nameById.set(id, name);
+          if (!id) continue;
+          nameById.set(id, [r?.first_name, r?.last_name].filter(Boolean).join(' ') || 'Empleado');
+          branchByEmp.set(id, (r?.branch_id as string | null) ?? null);
         }
 
         for (const row of rows) {
+          const eid = String(row.employee_id);
+          if (branchId && branchByEmp.get(eid) !== branchId) continue; // filtro de sucursal seleccionada
           const coords = parseCoords(row.telemetry);
           if (!coords) continue;
-
-          const name = nameById.get(String(row.employee_id)) ?? 'Empleado';
-
+          const name = nameById.get(eid) ?? 'Empleado';
           list.push({
             id: row.id,
             name,
@@ -183,15 +230,33 @@ export default function MapaEmpleadosScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profile?.role, employee?.company_id, employee?.branch_id]);
+  }, [session?.user?.id, canAccessAdminPanel, companyId, branchId]);
 
+  // Payload de marcadores + centro para inyectar en el WebView.
+  const payload = useMemo(
+    () => ({
+      center: [initialMapRegion.latitude, initialMapRegion.longitude] as [number, number],
+      zoom: zoomFromDelta(initialMapRegion.latitudeDelta),
+      markers: employees.map((e) => ({
+        lat: e.latitude,
+        lng: e.longitude,
+        name: e.name,
+        clockIn: formatClockIn(e.clockIn),
+      })),
+    }),
+    [employees, initialMapRegion]
+  );
+
+  // Inyecta los marcadores cuando el mapa está listo o cambian los datos.
   useEffect(() => {
-    if (employees.length === 0 || !mapRef.current) return;
-    mapRef.current.fitToCoordinates(
-      employees.map((e) => ({ latitude: e.latitude, longitude: e.longitude })),
-      { edgePadding: { top: 72, right: 48, bottom: 72, left: 48 }, animated: true }
-    );
-  }, [employees]);
+    if (!mapReady || !webRef.current) return;
+    const js = `window.__render(${JSON.stringify(payload)}); true;`;
+    webRef.current.injectJavaScript(js);
+  }, [mapReady, payload]);
+
+  const onMessage = (e: WebViewMessageEvent) => {
+    if (e.nativeEvent.data === 'ready') setMapReady(true);
+  };
 
   if (!isLoading && unauthorized) {
     return (
@@ -203,28 +268,28 @@ export default function MapaEmpleadosScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <MapView
-        ref={mapRef}
+      <View style={styles.scopeBar}>
+        <AdminScopeSelector />
+      </View>
+      <View style={styles.mapWrap}>
+      <WebView
+        ref={webRef}
         style={styles.map}
-        initialRegion={initialMapRegion}
-        showsUserLocation={false}
-        showsMyLocationButton={true}
-      >
-        {employees.map((emp) => (
-          <Marker
-            key={emp.id}
-            coordinate={{ latitude: emp.latitude, longitude: emp.longitude }}
-            title={emp.name}
-            description={`Entrada: ${formatClockIn(emp.clockIn)}`}
-          />
-        ))}
-      </MapView>
+        originWhitelist={['*']}
+        source={{ html: LEAFLET_HTML }}
+        javaScriptEnabled
+        domStorageEnabled
+        onMessage={onMessage}
+        startInLoadingState={false}
+      />
 
       {!isLoading && employees.length === 0 && (
-        <View style={styles.emptyMapOverlay}>
-          <Text style={styles.emptyMapText}>
-            No hay empleados con turno activo o compartiendo ubicación en este momento.
-          </Text>
+        <View style={styles.emptyMapOverlay} pointerEvents="none">
+          <View style={styles.emptyPill}>
+            <Text style={styles.emptyMapText}>
+              No hay empleados con turno activo o compartiendo ubicación en este momento.
+            </Text>
+          </View>
         </View>
       )}
 
@@ -234,6 +299,7 @@ export default function MapaEmpleadosScreen() {
           <Text style={styles.loaderText}>Cargando empleados en turno...</Text>
         </View>
       )}
+      </View>
     </View>
   );
 }
@@ -243,6 +309,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.background,
   },
+  scopeBar: { paddingHorizontal: 16, paddingTop: 8 },
+  mapWrap: { flex: 1 },
   centered: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -257,9 +325,6 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
     width: '100%',
-    ...Platform.select({
-      android: { height: '100%' },
-    }),
   },
   loaderOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -274,14 +339,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   emptyMapOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(248, 250, 252, 0.75)',
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
+  },
+  emptyPill: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   emptyMapText: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     color: theme.textSecondary,
     textAlign: 'center',

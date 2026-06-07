@@ -3,7 +3,7 @@
     "name": "Quantix HR",
     "slug": "quantix-hr",
     "scheme": "quantixhr",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -29,6 +29,23 @@
     "plugins": [
       "@react-native-community/datetimepicker",
       "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Quantix HR accede a tus fotos para adjuntar el comprobante de tu pago de préstamo.",
+          "cameraPermission": "Quantix HR usa la cámara para tomar la foto del comprobante de tu pago de préstamo."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Quantix HR usa tu ubicación para el rastreo operativo durante tu turno.",
+          "locationAlwaysAndWhenInUsePermission": "Quantix HR comparte tu ubicación con tu empresa durante tu turno, incluso con la app en segundo plano.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
       [
         "expo-notifications",
         {

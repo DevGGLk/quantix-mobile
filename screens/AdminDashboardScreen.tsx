@@ -14,14 +14,16 @@ import { useNavigation } from '@react-navigation/native';
 import type { RootStackNavigation } from '../types/navigation';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import type { TableUpdate } from '../types/dbHelpers';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { useAdminScope } from '../lib/AdminScopeContext';
+import AdminScopeSelector from '../components/AdminScopeSelector';
 import { errorMessage } from '../lib/errorMessage';
 
 type SolicitudPendiente = {
   id: string;
-  /** Tabla origen: legacy vs paridad web (`time_off_requests`). */
-  source: 'employee_requests' | 'time_off_requests';
+  source: 'time_off_requests';
   request_type: string | null;
   reason: string | null;
   start_date: string | null;
@@ -60,7 +62,10 @@ function startOfTodayISO(): string {
 export default function AdminDashboardScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<RootStackNavigation>();
-  const { session, profile, employee } = useAuth();
+  const { session } = useAuth();
+  const { companyId, branchId } = useAdminScope();
+  // Con el selector de empresa/sucursal, el scope es siempre la empresa elegida (no holding-wide).
+  const holdingWide = false;
 
   const [tardanzasHoy, setTardanzasHoy] = useState(0);
   const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudPendiente[]>([]);
@@ -74,26 +79,17 @@ export default function AdminDashboardScreen() {
 
   const handleGestionarSolicitud = async (
     id: string,
-    source: SolicitudPendiente['source'],
     nuevoEstado: 'aprobado' | 'rechazado'
   ) => {
     try {
       setUpdatingRequestId(id);
 
-      if (source === 'time_off_requests') {
-        const statusWeb = nuevoEstado === 'aprobado' ? 'aprobada' : 'rechazada';
-        const { error } = await supabase
-          .from('time_off_requests')
-          .update({ status: statusWeb })
-          .eq('id', id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('employee_requests')
-          .update({ status: nuevoEstado })
-          .eq('id', id);
-        if (error) throw error;
-      }
+      const statusWeb = nuevoEstado === 'aprobado' ? 'aprobada' : 'rechazada';
+      const { error } = await supabase
+        .from('time_off_requests')
+        .update({ status: statusWeb } satisfies TableUpdate<'time_off_requests'>)
+        .eq('id', id);
+      if (error) throw error;
 
       setSolicitudesPendientes((prev) => prev.filter((s) => s.id !== id));
       setPermisosPendientesCount((prev) => Math.max(0, prev - 1));
@@ -115,13 +111,11 @@ export default function AdminDashboardScreen() {
         const userId = session?.user?.id ?? null;
         if (!userId) return;
 
-        const companyId = employee?.company_id ?? null;
         if (!companyId) return;
+        const cid = companyId; // no-null para los closures de las queries
 
-        const role = String(profile?.role ?? '').toLowerCase();
-        const primaryBranchId = employee?.branch_id ?? null;
-        const isManager = role === 'manager';
-        const filterByBranch = isManager && primaryBranchId != null;
+        const primaryBranchId = branchId; // sucursal seleccionada (null = todas)
+        const filterByBranch = primaryBranchId != null;
 
         const startOfToday = startOfTodayISO();
 
@@ -132,26 +126,13 @@ export default function AdminDashboardScreen() {
               count: 'exact',
               ...(filterByBranch ? {} : { head: true }),
             })
-            .eq('company_id', companyId)
             .eq('is_late', true)
             .gte('clock_in', startOfToday);
-          if (filterByBranch) {
-            q = q.eq('employees.branch_id', primaryBranchId);
+          // Holding-wide para líder corporativo: sin filtro company_id → RLS amplía al holding
+          // (time_entries tiene política is_corporate_leader vía is_corporate_leader_for_company).
+          if (!holdingWide) {
+            q = q.eq('company_id', cid);
           }
-          return q;
-        };
-
-        const buildSolicitudesLegacy = () => {
-          let q = supabase
-            .from('employee_requests')
-            .select(
-              'id, request_type, reason, start_date, employees!inner(first_name, last_name, branch_id)',
-              { count: 'exact' }
-            )
-            .eq('company_id', companyId)
-            .in('status', ['pendiente', 'pending'])
-            .order('start_date', { ascending: true })
-            .limit(12);
           if (filterByBranch) {
             q = q.eq('employees.branch_id', primaryBranchId);
           }
@@ -159,16 +140,23 @@ export default function AdminDashboardScreen() {
         };
 
         const buildSolicitudesTimeOff = () => {
+          // Líder corporativo (holdingWide): sin filtro company_id → RLS amplía a todo el holding
+          // (time_off_requests tiene path is_corporate_leader en SELECT y UPDATE).
+          // Left join en employees (no !inner) salvo filtro por sucursal: un líder con rol
+          // `employee` solo ve empleados de su sucursal por RLS, así que con !inner perderíamos
+          // las filas del resto del holding. El nombre cae a "Empleado" cuando no es visible.
+          const empEmbed = filterByBranch
+            ? 'employees!inner(first_name, last_name, branch_id)'
+            : 'employees(first_name, last_name, branch_id)';
           let q = supabase
             .from('time_off_requests')
-            .select(
-              'id, request_type, notes, start_date, employees!inner(first_name, last_name, branch_id)',
-              { count: 'exact' }
-            )
-            .eq('company_id', companyId)
+            .select(`id, request_type, notes, start_date, ${empEmbed}`, { count: 'exact' })
             .in('status', ['pendiente', 'pending'])
             .order('start_date', { ascending: true })
             .limit(12);
+          if (!holdingWide) {
+            q = q.eq('company_id', cid);
+          }
           if (filterByBranch) {
             q = q.eq('employees.branch_id', primaryBranchId);
           }
@@ -182,8 +170,12 @@ export default function AdminDashboardScreen() {
               'id, completion_percentage, checklists!inner(title, company_id)' +
                 (filterByBranch ? ', employees!inner(branch_id)' : '')
             )
-            .gte('submitted_at', startOfToday)
-            .eq('checklists.company_id', companyId);
+            .gte('submitted_at', startOfToday);
+          // Holding-wide para líder corporativo: checklists tiene path is_corporate_leader en RLS,
+          // así que el embed checklists!inner resuelve en todo el holding sin filtrar company_id.
+          if (!holdingWide) {
+            q = q.eq('checklists.company_id', cid);
+          }
           if (filterByBranch) {
             q = q.eq('employees.branch_id', primaryBranchId);
           }
@@ -196,8 +188,11 @@ export default function AdminDashboardScreen() {
             .select(filterByBranch ? 'id, employees!inner(branch_id)' : '*', {
               count: 'exact',
             })
-            .eq('company_id', companyId)
             .eq('status', 'pending');
+          // Holding-wide para líder corporativo (política is_corporate_leader en extra_hours_records).
+          if (!holdingWide) {
+            q = q.eq('company_id', cid);
+          }
           if (filterByBranch) {
             q = q.eq('employees.branch_id', primaryBranchId);
           }
@@ -206,12 +201,16 @@ export default function AdminDashboardScreen() {
 
         const fetchIncidencias = async (): Promise<IncidenciaItem[]> => {
           const limit = filterByBranch ? 40 : 3;
-          const { data: rows, error: incErr } = await supabase
+          let incQ = supabase
             .from('disciplinary_records')
             .select('id, type, reason, date, employee_id')
-            .eq('company_id', companyId)
             .order('date', { ascending: false })
             .limit(limit);
+          // Holding-wide para líder corporativo (política is_corporate_leader en disciplinary_records).
+          if (!holdingWide) {
+            incQ = incQ.eq('company_id', cid);
+          }
+          const { data: rows, error: incErr } = await incQ;
           if (incErr) throw incErr;
           const list = (rows ?? []) as {
             id: string;
@@ -262,32 +261,57 @@ export default function AdminDashboardScreen() {
           });
         };
 
-        const [tardanzasRes, solicitudesLegacyRes, solicitudesTorRes, checklistsRes, horasExtrasRes] =
+        const [tardanzasRes, solicitudesTorRes, checklistsRes, horasExtrasRes] =
           await Promise.all([
             buildTardanzas(),
-            buildSolicitudesLegacy(),
             buildSolicitudesTimeOff(),
             buildChecklists(),
             buildHorasExtras(),
           ]);
 
         if (tardanzasRes.error) throw tardanzasRes.error;
-        if (solicitudesLegacyRes.error) throw solicitudesLegacyRes.error;
         if (solicitudesTorRes.error) throw solicitudesTorRes.error;
         if (checklistsRes.error) throw checklistsRes.error;
         if (horasExtrasRes.error) throw horasExtrasRes.error;
 
         const incidenciasItems = await fetchIncidencias();
 
+        // Ausencias hoy: empleados programados hoy (schedules) sin marca de entrada hoy.
+        const now = new Date();
+        const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        let ausencias = 0;
+        try {
+          let schedQ = supabase
+            .from('schedules')
+            .select('employee_id')
+            .eq('company_id', cid)
+            .eq('business_date', todayLocal);
+          if (filterByBranch && primaryBranchId) schedQ = schedQ.eq('branch_id', primaryBranchId);
+          const { data: schedRows } = await schedQ;
+          const scheduledIds = new Set(
+            (schedRows ?? [])
+              .map((r) => String((r as { employee_id?: string | null }).employee_id ?? ''))
+              .filter(Boolean),
+          );
+          if (scheduledIds.size > 0) {
+            const { data: clockRows } = await supabase
+              .from('time_entries')
+              .select('employee_id')
+              .eq('company_id', cid)
+              .gte('clock_in', startOfToday);
+            const clockedIds = new Set(
+              (clockRows ?? [])
+                .map((r) => String((r as { employee_id?: string | null }).employee_id ?? ''))
+                .filter(Boolean),
+            );
+            for (const id of scheduledIds) if (!clockedIds.has(id)) ausencias += 1;
+          }
+        } catch {
+          ausencias = 0;
+        }
+
         if (!isMounted) return;
 
-        type RowEr = {
-          id: string;
-          request_type: string | null;
-          reason: string | null;
-          start_date?: string | null;
-          employees: SolicitudPendiente['employees'];
-        };
         type RowTor = {
           id: string;
           request_type: string | null;
@@ -295,32 +319,22 @@ export default function AdminDashboardScreen() {
           start_date?: string | null;
           employees: SolicitudPendiente['employees'];
         };
-        const legacyRows = (solicitudesLegacyRes.data ?? []) as RowEr[];
         const torRows = (solicitudesTorRes.data ?? []) as RowTor[];
-        const merged: SolicitudPendiente[] = [
-          ...legacyRows.map((r) => ({
-            id: r.id,
-            source: 'employee_requests' as const,
-            request_type: r.request_type,
-            reason: r.reason,
-            start_date: r.start_date ?? null,
-            employees: r.employees,
-          })),
-          ...torRows.map((r) => ({
+        const merged: SolicitudPendiente[] = torRows
+          .map((r) => ({
             id: r.id,
             source: 'time_off_requests' as const,
             request_type: r.request_type,
             reason: r.notes,
             start_date: r.start_date ?? null,
             employees: r.employees,
-          })),
-        ]
+          }))
           .sort((a, b) => String(a.start_date ?? '').localeCompare(String(b.start_date ?? '')))
           .slice(0, 5);
 
-        const totalPendientes =
-          (solicitudesLegacyRes.count ?? 0) + (solicitudesTorRes.count ?? 0);
+        const totalPendientes = solicitudesTorRes.count ?? 0;
 
+        setAusenciasHoy(ausencias);
         setTardanzasHoy(tardanzasRes.count ?? 0);
         setSolicitudesPendientes(merged);
         setPermisosPendientesCount(totalPendientes);
@@ -350,7 +364,7 @@ export default function AdminDashboardScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profile?.role, employee?.company_id, employee?.branch_id]);
+  }, [session?.user?.id, companyId, branchId]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -363,6 +377,8 @@ export default function AdminDashboardScreen() {
           <Text style={styles.title}>Centro de Mando</Text>
           <Text style={styles.subtitle}>{formatHoy()}</Text>
         </View>
+
+        <AdminScopeSelector />
 
         <TouchableOpacity
           style={styles.radarGpsButton}
@@ -445,13 +461,13 @@ export default function AdminDashboardScreen() {
                               text: 'Rechazar',
                               style: 'destructive',
                               onPress: () =>
-                                handleGestionarSolicitud(item.id, item.source, 'rechazado'),
+                                handleGestionarSolicitud(item.id, 'rechazado'),
                             },
                             {
                               text: 'Aprobar',
                               style: 'default',
                               onPress: () =>
-                                handleGestionarSolicitud(item.id, item.source, 'aprobado'),
+                                handleGestionarSolicitud(item.id, 'aprobado'),
                             },
                             { text: 'Cancelar', style: 'cancel' },
                           ]
@@ -568,6 +584,24 @@ const styles = StyleSheet.create({
     color: theme.textSecondary,
     marginTop: 6,
     textTransform: 'capitalize',
+  },
+  holdingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: theme.backgroundAlt,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignSelf: 'flex-start',
+  },
+  holdingBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.primary,
   },
   radarGpsButton: {
     backgroundColor: theme.primary,

@@ -11,6 +11,7 @@ import { decideOnboardingGate } from './lib/onboardingGate';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
 import OnboardingScreen from './screens/OnboardingScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
+import { AdminScopeProvider } from './lib/AdminScopeContext';
 import { supabase } from './lib/supabase';
 import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -35,8 +36,16 @@ import ReporteHorasExtrasScreen from './screens/ReporteHorasExtrasScreen';
 import ReportarIncidenciaScreen from './screens/ReportarIncidenciaScreen';
 import CrearAnuncioScreen from './screens/CrearAnuncioScreen';
 import MiEmpresaScreen from './screens/MiEmpresaScreen';
+import PrestamosScreen from './screens/PrestamosScreen';
+import SolicitarPrestamoScreen from './screens/SolicitarPrestamoScreen';
+import PrestamoDetalleScreen from './screens/PrestamoDetalleScreen';
+import RegistrarPagoScreen from './screens/RegistrarPagoScreen';
+import MisPagosScreen from './screens/MisPagosScreen';
 import type { MainTabParamList, RootStackParamList } from './types/navigation';
 import { initSentryFromEnv } from './lib/sentryInit';
+// Efecto secundario: registra la tarea de ubicación en segundo plano (TaskManager.defineTask)
+// a nivel global, para que el SO pueda relanzar el JS headless y entregar ubicaciones.
+import './lib/backgroundLocation';
 
 initSentryFromEnv();
 
@@ -271,6 +280,7 @@ function AppInner() {
       <AuthRecordsBannerBar />
       <OnboardingGateContext.Provider value={onboardingGateValue}>
         <View style={{ flex: 1, backgroundColor: theme.background }}>
+          <AdminScopeProvider>
           <NavigationContainer>
           <Stack.Navigator>
             <Stack.Screen
@@ -368,8 +378,34 @@ function AppInner() {
               component={MiEmpresaScreen}
               options={{ title: 'Mi Empresa' }}
             />
+            <Stack.Screen
+              name="Prestamos"
+              component={PrestamosScreen}
+              options={{ title: 'Préstamos y adelantos' }}
+            />
+            <Stack.Screen
+              name="SolicitarPrestamo"
+              component={SolicitarPrestamoScreen}
+              options={{ title: 'Solicitar préstamo' }}
+            />
+            <Stack.Screen
+              name="PrestamoDetalle"
+              component={PrestamoDetalleScreen}
+              options={{ title: 'Detalle de solicitud' }}
+            />
+            <Stack.Screen
+              name="RegistrarPago"
+              component={RegistrarPagoScreen}
+              options={{ title: 'Registrar pago' }}
+            />
+            <Stack.Screen
+              name="MisPagos"
+              component={MisPagosScreen}
+              options={{ title: 'Mis pagos' }}
+            />
           </Stack.Navigator>
         </NavigationContainer>
+          </AdminScopeProvider>
         </View>
       </OnboardingGateContext.Provider>
     </SafeAreaProvider>
