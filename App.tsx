@@ -11,7 +11,7 @@ import { decideOnboardingGate } from './lib/onboardingGate';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
 import OnboardingScreen from './screens/OnboardingScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
-import { ThemeProvider } from './theme';
+import { ThemeProvider, useTheme } from './theme';
 import { supabase } from './lib/supabase';
 import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -90,13 +90,18 @@ function AuthRecordsBannerBar() {
 }
 
 function MainTabs() {
+  const { palette } = useTheme();
+  // Regla de marca: nav activa = índigo; barra clara con borde superior sutil.
+  const activeColor = palette.brand.base; // índigo #3C3489
+  const inactiveColor = palette.text.tertiary;
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: HEADER_SHOWN,
         tabBarShowLabel: TAB_BAR_SHOW_LABEL,
-        tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: theme.textMuted,
+        tabBarActiveTintColor: activeColor,
+        tabBarInactiveTintColor: inactiveColor,
         tabBarIcon: ({ focused }) => {
           const names = TAB_ICONS[route.name as keyof typeof TAB_ICONS];
           const icon = focused ? names.active : names.inactive;
@@ -104,13 +109,14 @@ function MainTabs() {
             <Ionicons
               name={icon as keyof typeof Ionicons.glyphMap}
               size={24}
-              color={focused ? theme.primary : theme.textMuted}
+              color={focused ? activeColor : inactiveColor}
             />
           );
         },
         tabBarStyle: {
-          backgroundColor: theme.textPrimary,
-          borderTopWidth: 0,
+          backgroundColor: palette.surface.card,
+          borderTopWidth: 1,
+          borderTopColor: palette.border,
           ...Platform.select({
             ios: {
               shadowColor: '#000',
@@ -379,9 +385,10 @@ function AppInner() {
 
 function App() {
   return (
-    // Sigue el modo del sistema (claro/oscuro del teléfono). Aditivo: solo
-    // LoginScreen consume useTheme() por ahora; el resto sigue con lib/theme.ts.
-    <ThemeProvider defaultPreference="system">
+    // MIGRACIÓN light-first: la app renderiza siempre claro mientras se migran
+    // las pantallas (lo nuevo se escribe mode-aware, pero pinned a light para no
+    // mezclar claro/oscuro). Paso final del rediseño: volver a "system".
+    <ThemeProvider defaultPreference="light">
       <AuthProvider>
         <AppInner />
       </AuthProvider>

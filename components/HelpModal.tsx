@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Modal,
   Text,
@@ -8,6 +8,8 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
+
+import { useTheme, type Palette } from '../theme';
 
 export type HelpModalProps = {
   visible: boolean;
@@ -22,6 +24,9 @@ export type HelpModalProps = {
  * Modal educativo reutilizable (paridad UX con guías del dashboard web).
  */
 export function HelpModal({ visible, onClose, title, content, children }: HelpModalProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+
   const body =
     children ??
     (content ? <Text style={styles.bodyText}>{content}</Text> : null);
@@ -58,55 +63,56 @@ export function HelpModal({ visible, onClose, title, content, children }: HelpMo
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    maxHeight: '80%',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.2,
-        shadowRadius: 16,
-      },
-      android: { elevation: 8 },
-    }),
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 12,
-  },
-  scroll: {
-    maxHeight: 320,
-  },
-  scrollContent: {
-    paddingBottom: 8,
-  },
-  bodyText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: '#334155',
-  },
-  button: {
-    marginTop: 16,
-    backgroundColor: '#00C2D1',
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: c.backdrop,
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+    },
+    card: {
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      padding: 20,
+      maxHeight: '80%',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.2,
+          shadowRadius: 16,
+        },
+        android: { elevation: 8 },
+      }),
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: c.text.primary,
+      marginBottom: 12,
+    },
+    scroll: {
+      maxHeight: 320,
+    },
+    scrollContent: {
+      paddingBottom: 8,
+    },
+    bodyText: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: c.text.secondary,
+    },
+    button: {
+      marginTop: 16,
+      backgroundColor: c.mode === 'dark' ? c.action.bright : c.action.base,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    buttonText: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: c.onAction,
+    },
+  });
