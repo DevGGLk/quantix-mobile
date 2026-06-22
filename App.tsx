@@ -12,6 +12,7 @@ import { decideOnboardingGate } from './lib/onboardingGate';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
 import OnboardingScreen from './screens/OnboardingScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
+import { ThemeProvider } from './theme';
 import { supabase } from './lib/supabase';
 import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -459,9 +460,13 @@ function AppInner() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppInner />
-    </AuthProvider>
+    // Sigue el modo del sistema (claro/oscuro del teléfono). Aditivo: solo
+    // LoginScreen consume useTheme() por ahora; el resto sigue con lib/theme.ts.
+    <ThemeProvider defaultPreference="system">
+      <AuthProvider>
+        <AppInner />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

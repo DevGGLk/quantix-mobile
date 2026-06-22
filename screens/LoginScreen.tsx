@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -16,13 +16,16 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { getPasswordRecoveryRedirectUrl } from '../lib/authRedirect';
 import { supabase } from '../lib/supabase';
-import { theme } from '../lib/theme';
+import { useTheme, type Palette } from '../theme';
 
 type LoginScreenProps = {
   onLoginSuccess?: () => void;
 };
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+
   const passwordRef = useRef<TextInput>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -127,29 +130,54 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
       >
         <View style={styles.content}>
-          <Text style={styles.title}>Quantix HR</Text>
+          {/* Identidad de marca */}
+          <View style={styles.brandBlock}>
+            <View style={styles.brandSymbol}>
+              <Text style={styles.brandSymbolLetter}>Q</Text>
+              {/* Variante A: punto abajo-derecha (evoca "persona"). */}
+              <View style={styles.brandSymbolDot} />
+            </View>
+            <Text style={styles.title}>QuantixHR</Text>
+            <Text style={styles.tagline}>Gestión humana, con precisión</Text>
+          </View>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Correo Electrónico"
-            placeholderTextColor="#94a3b8"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!isLoading}
-            returnKeyType="next"
-            blurOnSubmit={false}
-            onSubmitEditing={() => passwordRef.current?.focus()}
-          />
+          {/* Correo */}
+          <View style={styles.inputRow}>
+            <Ionicons
+              name="mail-outline"
+              size={20}
+              color={palette.text.tertiary}
+              style={styles.inputIcon}
+            />
+            <TextInput
+              style={styles.inputField}
+              placeholder="Correo electrónico"
+              placeholderTextColor={palette.text.tertiary}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isLoading}
+              returnKeyType="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => passwordRef.current?.focus()}
+            />
+          </View>
 
-          <View style={styles.passwordRow}>
+          {/* Contraseña */}
+          <View style={styles.inputRow}>
+            <Ionicons
+              name="lock-closed-outline"
+              size={20}
+              color={palette.text.tertiary}
+              style={styles.inputIcon}
+            />
             <TextInput
               ref={passwordRef}
-              style={styles.passwordInput}
+              style={styles.inputField}
               placeholder="Contraseña"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={palette.text.tertiary}
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -170,7 +198,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               <Ionicons
                 name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                 size={22}
-                color="#64748b"
+                color={palette.text.tertiary}
               />
             </TouchableOpacity>
           </View>
@@ -183,11 +211,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           >
             {isLoading ? (
               <View style={styles.buttonLoading}>
-                <ActivityIndicator color="#ffffff" size="small" />
+                <ActivityIndicator color={palette.onAction} size="small" />
                 <Text style={styles.buttonText}>Ingresando...</Text>
               </View>
             ) : (
-              <Text style={styles.buttonText}>Iniciar Sesión</Text>
+              <Text style={styles.buttonText}>Iniciar sesión</Text>
             )}
           </TouchableOpacity>
 
@@ -225,7 +253,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <TextInput
               style={styles.modalInput}
               placeholder="correo@empresa.com"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={palette.text.tertiary}
               value={recoveryEmail}
               onChangeText={setRecoveryEmail}
               keyboardType="email-address"
@@ -252,7 +280,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 disabled={isRecoveryLoading}
               >
                 {isRecoveryLoading ? (
-                  <ActivityIndicator color="#ffffff" size="small" />
+                  <ActivityIndicator color={palette.onAction} size="small" />
                 ) : (
                   <Text style={styles.modalButtonText}>Enviar</Text>
                 )}
@@ -265,149 +293,182 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  keyboardView: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  content: {
-    paddingHorizontal: 32,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: theme.textPrimary,
-    textAlign: 'center',
-    marginBottom: 40,
-  },
-  input: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#0f172a',
-    marginBottom: 16,
-  },
-  passwordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    marginBottom: 16,
-    paddingRight: 6,
-  },
-  passwordInput: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#0f172a',
-  },
-  passwordToggle: {
-    padding: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  button: {
-    backgroundColor: theme.primary,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.85,
-  },
-  buttonLoading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ffffff',
-  },
-  recoveryLinks: {
-    marginTop: 18,
-    gap: 10,
-    alignItems: 'center',
-  },
-  recoveryLink: {
-    color: theme.primary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  modalCard: {
-    width: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 18,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  modalHint: {
-    marginTop: 6,
-    marginBottom: 14,
-    color: theme.textSecondary,
-    fontSize: 14,
-  },
-  modalInput: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: '#0f172a',
-  },
-  modalActions: {
-    marginTop: 16,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-  },
-  modalButtonGhost: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-  },
-  modalButtonGhostText: {
-    color: theme.textSecondary,
-    fontWeight: '600',
-  },
-  modalButton: {
-    backgroundColor: theme.primary,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    minWidth: 86,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalButtonText: {
-    color: '#ffffff',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-});
+/**
+ * Estilos dependientes del modo. Se reconstruyen vía useMemo cuando cambia la
+ * paleta (light↔dark). El botón de acción usa turquesa `base` en light y
+ * `bright` en dark (regla del manual). El símbolo de marca y `onAction` ya vienen
+ * resueltos por modo desde la paleta.
+ */
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    keyboardView: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    content: {
+      paddingHorizontal: 32,
+    },
+    brandBlock: {
+      alignItems: 'center',
+      marginBottom: 36,
+    },
+    brandSymbol: {
+      width: 62,
+      height: 62,
+      borderRadius: 17,
+      // Logo = identidad de marca: colores FIJOS, idénticos en light y dark
+      // (intencionalmente NO dependen del palette). No agregar borde por defecto.
+      backgroundColor: '#3C3489',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    brandSymbolLetter: {
+      fontSize: 34,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    brandSymbolDot: {
+      position: 'absolute',
+      bottom: 9,
+      right: 9,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: '#6C5CE7',
+    },
+    title: {
+      fontSize: 26,
+      fontWeight: '700',
+      color: c.text.primary,
+      textAlign: 'center',
+    },
+    tagline: {
+      marginTop: 6,
+      fontSize: 13,
+      color: c.text.tertiary,
+      textAlign: 'center',
+    },
+    inputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.input.bg,
+      borderWidth: 1,
+      borderColor: c.input.border,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      marginBottom: 16,
+    },
+    inputIcon: {
+      marginRight: 10,
+    },
+    inputField: {
+      flex: 1,
+      paddingVertical: 14,
+      fontSize: 16,
+      color: c.text.primary,
+    },
+    passwordToggle: {
+      padding: 6,
+      marginLeft: 4,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    button: {
+      backgroundColor: c.mode === 'dark' ? c.action.bright : c.action.base,
+      borderRadius: 12,
+      paddingVertical: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 8,
+    },
+    buttonDisabled: {
+      opacity: 0.85,
+    },
+    buttonLoading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    buttonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: c.onAction,
+    },
+    recoveryLinks: {
+      marginTop: 18,
+      gap: 10,
+      alignItems: 'center',
+    },
+    recoveryLink: {
+      color: c.link,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: c.backdrop,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+    },
+    modalCard: {
+      width: '100%',
+      backgroundColor: c.surface.card,
+      borderRadius: 14,
+      padding: 18,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: c.text.primary,
+    },
+    modalHint: {
+      marginTop: 6,
+      marginBottom: 14,
+      color: c.text.secondary,
+      fontSize: 14,
+    },
+    modalInput: {
+      backgroundColor: c.input.bg,
+      borderWidth: 1,
+      borderColor: c.input.border,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 15,
+      color: c.text.primary,
+    },
+    modalActions: {
+      marginTop: 16,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 10,
+    },
+    modalButtonGhost: {
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    modalButtonGhostText: {
+      color: c.text.secondary,
+      fontWeight: '600',
+    },
+    modalButton: {
+      backgroundColor: c.mode === 'dark' ? c.action.bright : c.action.base,
+      borderRadius: 10,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      minWidth: 86,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    modalButtonText: {
+      color: c.onAction,
+      fontWeight: '700',
+      fontSize: 14,
+    },
+  });
