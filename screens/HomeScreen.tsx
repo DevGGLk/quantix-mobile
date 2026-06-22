@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,7 @@ import type { TabCompositeNavigation } from '../types/navigation';
 import { HelpModal } from '../components/HelpModal';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
-import { theme } from '../lib/theme';
+import { useTheme, type Palette } from '../theme';
 import { haversineDistanceMeters, parseBranchGeo, type BranchGeo } from '../lib/geo';
 import { useAuth } from '../lib/AuthContext';
 import { errorMessage } from '../lib/errorMessage';
@@ -220,6 +220,8 @@ function assertInsideGeofence(
 export default function HomeScreen() {
   const navigation = useNavigation<TabCompositeNavigation<'Home'>>();
   const { session, authProfile, employee, refreshProfile, isOperativeEmployee } = useAuth();
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const employeeGpsConsent = employee?.is_gps_tracking_enabled === true;
   const employeeRecordId = employee?.id ?? null;
   const [perfil, setPerfil] = useState<HomePerfil | null>(null);
@@ -841,7 +843,7 @@ export default function HomeScreen() {
       <View style={styles.header}>
         {isLoadingPerfil ? (
           <View style={styles.headerLoading}>
-            <ActivityIndicator size="small" color={theme.primary} />
+            <ActivityIndicator size="small" color="#FFFFFF" />
             <Text style={styles.loadingText}>Cargando tu perfil...</Text>
           </View>
         ) : (
@@ -900,7 +902,7 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefreshHome} tintColor={theme.primary} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefreshHome} tintColor={palette.brand.base} />
         }
       >
         <View style={styles.content}>
@@ -912,7 +914,7 @@ export default function HomeScreen() {
               accessibilityLabel="Ayuda sobre privacidad y GPS"
               accessibilityRole="button"
             >
-              <Ionicons name="information-circle-outline" size={24} color={theme.textMuted} />
+              <Ionicons name="information-circle-outline" size={24} color={palette.text.tertiary} />
             </TouchableOpacity>
           </View>
           {!isClockedIn ? (
@@ -927,7 +929,7 @@ export default function HomeScreen() {
               disabled={isPunching || isLoadingClockStatus || isLoadingPerfil}
             >
               {isPunching ? (
-                <ActivityIndicator color={theme.backgroundAlt} />
+                <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.mainButtonText}>📍 Marcar Entrada</Text>
               )}
@@ -941,7 +943,7 @@ export default function HomeScreen() {
                 disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
               >
                 {isPauseActionLoading ? (
-                  <ActivityIndicator color={theme.backgroundAlt} />
+                  <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text style={styles.pauseResumeText}>▶️ Regresar de Pausa</Text>
                 )}
@@ -957,7 +959,7 @@ export default function HomeScreen() {
                 disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
               >
                 {isPunching ? (
-                  <ActivityIndicator color={theme.backgroundAlt} />
+                  <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text style={styles.mainButtonText}>🛑 Marcar Salida</Text>
                 )}
@@ -973,7 +975,7 @@ export default function HomeScreen() {
                   disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
                 >
                   {isPauseActionLoading ? (
-                    <ActivityIndicator color={theme.backgroundAlt} />
+                    <ActivityIndicator color="#FFFFFF" />
                   ) : (
                     <Text style={styles.secondaryRoundText}>⏸{'\n'}Iniciar{'\n'}Pausa</Text>
                   )}
@@ -989,7 +991,7 @@ export default function HomeScreen() {
                   disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
                 >
                   {isPunching ? (
-                    <ActivityIndicator color={theme.backgroundAlt} />
+                    <ActivityIndicator color="#FFFFFF" />
                   ) : (
                     <Text style={styles.mainButtonText}>🛑 Marcar Salida</Text>
                   )}
@@ -1004,7 +1006,7 @@ export default function HomeScreen() {
           {announcementsLoadError ? (
             <Text style={styles.hubSectionErrorText}>{announcementsLoadError}</Text>
           ) : isLoadingHub && anuncios.length === 0 ? (
-            <ActivityIndicator style={styles.sectionLoader} color={theme.primary} />
+            <ActivityIndicator style={styles.sectionLoader} color={palette.brand.base} />
           ) : anuncios.length === 0 ? (
             <Text style={styles.emptyText}>
               No hay anuncios nuevos. ¡Que tengas un excelente turno!
@@ -1032,7 +1034,7 @@ export default function HomeScreen() {
           {eventsLoadError ? (
             <Text style={styles.hubSectionErrorText}>{eventsLoadError}</Text>
           ) : isLoadingHub && eventos.length === 0 ? (
-            <ActivityIndicator style={styles.sectionLoader} color={theme.primary} />
+            <ActivityIndicator style={styles.sectionLoader} color={palette.brand.base} />
           ) : eventos.length === 0 ? (
             <Text style={styles.emptyText}>No hay eventos programados.</Text>
           ) : (
@@ -1072,10 +1074,10 @@ export default function HomeScreen() {
   );
 }
 
-/** Sombras difusas (Soft UI) para tarjetas y controles elevados — Master Palette. */
+/** Sombras difusas (Soft UI) para tarjetas y controles elevados. */
 const SOFT_UI_SHADOW = Platform.select({
   ios: {
-    shadowColor: theme.textPrimary,
+    shadowColor: '#211F2E',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.05,
     shadowRadius: 15,
@@ -1083,254 +1085,263 @@ const SOFT_UI_SHADOW = Platform.select({
   android: { elevation: 3 },
 });
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  header: {
-    paddingTop: 18,
-    paddingHorizontal: 24,
-    backgroundColor: theme.background,
-  },
-  homeErrorWrap: {
-    paddingHorizontal: 24,
-    marginTop: 8,
-    backgroundColor: theme.background,
-  },
-  homeErrorText: {
-    color: theme.danger,
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  headerLoading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    minHeight: 56,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: theme.textMuted,
-    fontWeight: '500',
-  },
-  greeting: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  role: {
-    marginTop: 6,
-    fontSize: 14,
-    color: theme.textMuted,
-    fontWeight: '500',
-  },
-  clockStatusLoading: {
-    marginTop: 10,
-    fontSize: 12,
-    color: theme.textMuted,
-    fontWeight: '500',
-  },
-  adminPanelButton: {
-    marginTop: 16,
-    backgroundColor: theme.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: theme.cardBorderRadius,
-    alignSelf: 'flex-start',
-    ...SOFT_UI_SHADOW,
-  },
-  adminPanelButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: theme.backgroundAlt,
-  },
-  scroll: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  scrollContent: {
-    padding: 24,
-    paddingBottom: 32,
-    backgroundColor: theme.background,
-    flexGrow: 1,
-  },
-  content: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 32,
-    width: '100%',
-    backgroundColor: theme.background,
-  },
-  clockSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 16,
-    width: '100%',
-    backgroundColor: theme.background,
-  },
-  clockSectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  clockInColumn: {
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 400,
-    alignSelf: 'center',
-    gap: 16,
-  },
-  rowActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-    width: '100%',
-    maxWidth: 400,
-    alignSelf: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 20,
-    flexWrap: 'wrap',
-  },
-  secondaryRound: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    flexShrink: 0,
-    backgroundColor: theme.warning,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SOFT_UI_SHADOW,
-  },
-  secondaryRoundText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: theme.backgroundAlt,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  pauseResumeButton: {
-    width: '100%',
-    maxWidth: 320,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    borderRadius: theme.cardBorderRadius,
-    backgroundColor: theme.warning,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SOFT_UI_SHADOW,
-  },
-  pauseResumeText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: theme.backgroundAlt,
-  },
-  btnMuted: {
-    opacity: 0.75,
-  },
-  mainButton: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    flexShrink: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SOFT_UI_SHADOW,
-  },
-  mainButtonCheckedOut: {
-    backgroundColor: theme.success,
-  },
-  mainButtonCheckedIn: {
-    backgroundColor: theme.danger,
-  },
-  mainButtonPunching: {
-    opacity: 0.9,
-  },
-  mainButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: theme.backgroundAlt,
-    textAlign: 'center',
-    paddingHorizontal: 8,
-  },
-  hubSection: {
-    marginBottom: 24,
-    backgroundColor: theme.background,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: theme.textPrimary,
-    marginBottom: 12,
-  },
-  sectionLoader: {
-    marginTop: 8,
-  },
-  hubSectionErrorText: {
-    fontSize: 14,
-    color: theme.danger,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: theme.textMuted,
-  },
-  announcementCard: {
-    backgroundColor: theme.surface,
-    borderRadius: theme.cardBorderRadius,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    ...SOFT_UI_SHADOW,
-  },
-  announcementTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: theme.textPrimary,
-    marginBottom: 6,
-  },
-  announcementContent: {
-    fontSize: 13,
-    color: theme.textMuted,
-  },
-  eventsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    backgroundColor: theme.background,
-    paddingBottom: 4,
-  },
-  eventsScroll: {
-    backgroundColor: theme.background,
-  },
-  eventCard: {
-    width: 200,
-    backgroundColor: theme.surface,
-    borderRadius: theme.cardBorderRadius,
-    padding: 14,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    ...SOFT_UI_SHADOW,
-  },
-  eventDate: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: theme.primary,
-    marginBottom: 4,
-  },
-  eventTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: theme.textPrimary,
-    marginBottom: 4,
-  },
-  eventLocation: {
-    fontSize: 12,
-    color: theme.textMuted,
-  },
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    // Banda índigo de marca (saludo + rol + botón admin). Texto blanco.
+    header: {
+      paddingTop: 18,
+      paddingBottom: 24,
+      paddingHorizontal: 24,
+      backgroundColor: c.brand.base,
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
+    },
+    homeErrorWrap: {
+      paddingHorizontal: 24,
+      marginTop: 8,
+      backgroundColor: c.background,
+    },
+    homeErrorText: {
+      color: c.semantic.danger.color,
+      fontWeight: '600',
+      fontSize: 13,
+    },
+    headerLoading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      minHeight: 56,
+    },
+    loadingText: {
+      fontSize: 14,
+      color: c.brand.subtle,
+      fontWeight: '500',
+    },
+    greeting: {
+      fontSize: 26,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    role: {
+      marginTop: 6,
+      fontSize: 14,
+      color: c.brand.subtle,
+      fontWeight: '500',
+    },
+    clockStatusLoading: {
+      marginTop: 10,
+      fontSize: 12,
+      color: c.brand.subtle,
+      fontWeight: '500',
+    },
+    // Botón de acción dentro del header índigo → violeta.
+    adminPanelButton: {
+      marginTop: 16,
+      backgroundColor: c.action.base,
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+      borderRadius: 16,
+      alignSelf: 'flex-start',
+      ...SOFT_UI_SHADOW,
+    },
+    adminPanelButtonText: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    scroll: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    scrollContent: {
+      padding: 24,
+      paddingBottom: 32,
+      backgroundColor: c.background,
+      flexGrow: 1,
+    },
+    content: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 32,
+      width: '100%',
+      backgroundColor: c.background,
+    },
+    clockSectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      marginBottom: 16,
+      width: '100%',
+      backgroundColor: c.background,
+    },
+    clockSectionTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: c.text.primary,
+    },
+    clockInColumn: {
+      alignItems: 'center',
+      width: '100%',
+      maxWidth: 400,
+      alignSelf: 'center',
+      gap: 16,
+    },
+    rowActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-evenly',
+      width: '100%',
+      maxWidth: 400,
+      alignSelf: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      gap: 20,
+      flexWrap: 'wrap',
+    },
+    // Pausa = ámbar/warning (marcaje existente).
+    secondaryRound: {
+      width: 120,
+      height: 120,
+      borderRadius: 60,
+      flexShrink: 0,
+      backgroundColor: c.semantic.warning.color,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...SOFT_UI_SHADOW,
+    },
+    secondaryRoundText: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      textAlign: 'center',
+      lineHeight: 18,
+    },
+    pauseResumeButton: {
+      width: '100%',
+      maxWidth: 320,
+      paddingVertical: 18,
+      paddingHorizontal: 24,
+      borderRadius: 16,
+      backgroundColor: c.semantic.warning.color,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...SOFT_UI_SHADOW,
+    },
+    pauseResumeText: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    btnMuted: {
+      opacity: 0.75,
+    },
+    mainButton: {
+      width: 160,
+      height: 160,
+      borderRadius: 80,
+      flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...SOFT_UI_SHADOW,
+    },
+    // Marcar Entrada = círculo violeta (action.bright).
+    mainButtonCheckedOut: {
+      backgroundColor: c.action.bright,
+    },
+    // Marcar Salida = rojo/danger.
+    mainButtonCheckedIn: {
+      backgroundColor: c.semantic.danger.color,
+    },
+    mainButtonPunching: {
+      opacity: 0.9,
+    },
+    mainButtonText: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      textAlign: 'center',
+      paddingHorizontal: 8,
+    },
+    hubSection: {
+      marginBottom: 24,
+      backgroundColor: c.background,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: c.text.primary,
+      marginBottom: 12,
+    },
+    sectionLoader: {
+      marginTop: 8,
+    },
+    hubSectionErrorText: {
+      fontSize: 14,
+      color: c.semantic.danger.color,
+      fontWeight: '600',
+      marginTop: 4,
+    },
+    emptyText: {
+      fontSize: 14,
+      color: c.text.tertiary,
+    },
+    announcementCard: {
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...SOFT_UI_SHADOW,
+    },
+    announcementTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: c.text.primary,
+      marginBottom: 6,
+    },
+    announcementContent: {
+      fontSize: 13,
+      color: c.text.secondary,
+    },
+    eventsRow: {
+      flexDirection: 'row',
+      gap: 12,
+      backgroundColor: c.background,
+      paddingBottom: 4,
+    },
+    eventsScroll: {
+      backgroundColor: c.background,
+    },
+    eventCard: {
+      width: 200,
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      padding: 14,
+      marginRight: 12,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...SOFT_UI_SHADOW,
+    },
+    eventDate: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: c.brand.base,
+      marginBottom: 4,
+    },
+    eventTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: c.text.primary,
+      marginBottom: 4,
+    },
+    eventLocation: {
+      fontSize: 12,
+      color: c.text.tertiary,
+    },
+  });
