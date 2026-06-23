@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { RootStackNavigation } from '../types/navigation';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
-import { theme } from '../lib/theme';
+import { useTheme, type Palette } from '../theme';
 import { useAuth } from '../lib/AuthContext';
 import { errorMessage } from '../lib/errorMessage';
 
@@ -61,6 +61,8 @@ export default function AdminDashboardScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<RootStackNavigation>();
   const { session, profile, employee } = useAuth();
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
 
   const [tardanzasHoy, setTardanzasHoy] = useState(0);
   const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudPendiente[]>([]);
@@ -390,31 +392,31 @@ export default function AdminDashboardScreen() {
 
         {loading ? (
           <View style={styles.loadingRow}>
-            <ActivityIndicator size="small" color={theme.primary} />
+            <ActivityIndicator size="small" color={palette.brand.base} />
             <Text style={styles.loadingText}>Cargando datos...</Text>
           </View>
         ) : (
           <>
             <View style={styles.metricsGrid}>
               <View style={styles.metricCard}>
-                <Ionicons name="person-remove-outline" size={24} color={theme.danger} />
+                <Ionicons name="person-remove-outline" size={24} color={palette.semantic.danger.color} />
                 <Text style={styles.metricValue}>{ausenciasHoy}</Text>
-                <Text style={[styles.metricLabel, { color: theme.danger }]}>Ausencias Hoy</Text>
+                <Text style={[styles.metricLabel, { color: palette.semantic.danger.color }]}>Ausencias Hoy</Text>
               </View>
               <View style={styles.metricCard}>
-                <Ionicons name="time-outline" size={24} color={theme.warning} />
+                <Ionicons name="time-outline" size={24} color={palette.semantic.warning.color} />
                 <Text style={styles.metricValue}>{tardanzasHoy}</Text>
-                <Text style={[styles.metricLabel, { color: theme.warning }]}>Llegadas Tardes</Text>
+                <Text style={[styles.metricLabel, { color: palette.semantic.warning.color }]}>Llegadas Tardes</Text>
               </View>
               <View style={styles.metricCard}>
-                <Ionicons name="document-text-outline" size={24} color={theme.accent} />
+                <Ionicons name="document-text-outline" size={24} color={palette.semantic.warning.color} />
                 <Text style={styles.metricValue}>{permisosPendientesCount}</Text>
-                <Text style={[styles.metricLabel, { color: theme.accent }]}>Permisos Pendientes</Text>
+                <Text style={[styles.metricLabel, { color: palette.semantic.warning.color }]}>Permisos Pendientes</Text>
               </View>
               <View style={styles.metricCard}>
-                <Ionicons name="time-outline" size={24} color={theme.accent} />
+                <Ionicons name="time-outline" size={24} color={palette.semantic.warning.color} />
                 <Text style={styles.metricValue}>{horasExtrasPendientes}</Text>
-                <Text style={[styles.metricLabel, { color: theme.accent }]}>Horas Extras por Aprobar</Text>
+                <Text style={[styles.metricLabel, { color: palette.semantic.warning.color }]}>Horas Extras por Aprobar</Text>
               </View>
             </View>
 
@@ -460,7 +462,7 @@ export default function AdminDashboardScreen() {
                       disabled={isUpdating}
                     >
                       {isUpdating ? (
-                        <ActivityIndicator size="small" color={theme.primary} />
+                        <ActivityIndicator size="small" color={palette.brand.base} />
                       ) : (
                         <>
                           <Text style={styles.approvalName}>{nombre}</Text>
@@ -541,245 +543,248 @@ export default function AdminDashboardScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 48,
-  },
-  header: {
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: theme.textPrimary,
-    letterSpacing: 0.3,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: theme.textSecondary,
-    marginTop: 6,
-    textTransform: 'capitalize',
-  },
-  radarGpsButton: {
-    backgroundColor: theme.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    marginBottom: 24,
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: theme.primary,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: { elevation: 4 },
-    }),
-  },
-  radarGpsButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: theme.backgroundAlt,
-  },
-  incidenciaButton: {
-    backgroundColor: theme.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    marginBottom: 12,
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: theme.primary,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 8,
-      },
-      android: { elevation: 4 },
-    }),
-  },
-  anuncioButton: {
-    backgroundColor: theme.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    marginBottom: 24,
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: theme.primary,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 8,
-      },
-      android: { elevation: 4 },
-    }),
-  },
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 24,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: theme.textSecondary,
-    fontWeight: '500',
-  },
-  emptyText: {
-    fontSize: 14,
-    color: theme.textMuted,
-    fontStyle: 'italic',
-    marginBottom: 8,
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 28,
-  },
-  metricCard: {
-    flex: 1,
-    minWidth: '30%',
-    backgroundColor: theme.backgroundAlt,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 6,
-      },
-      android: { elevation: 3 },
-    }),
-  },
-  metricValue: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: theme.textPrimary,
-    marginTop: 8,
-  },
-  metricLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: theme.textPrimary,
-    marginBottom: 12,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  approvalCard: {
-    backgroundColor: theme.backgroundAlt,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: theme.primary,
-    borderWidth: 1,
-    borderColor: theme.border,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  approvalName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  approvalTipo: {
-    fontSize: 13,
-    color: theme.textSecondary,
-    marginTop: 2,
-  },
-  approvalEstado: {
-    fontSize: 12,
-    color: theme.primary,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  radarCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: theme.backgroundAlt,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: theme.border,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  radarChecklist: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: theme.textPrimary,
-  },
-  radarRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  radarPct: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: theme.primary,
-  },
-  radarOk: {},
-  radarPending: {},
-  incidenciaCard: {
-    backgroundColor: theme.backgroundAlt,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: theme.primary,
-    borderWidth: 1,
-    borderColor: theme.border,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  incidenciaDesc: {
-    fontSize: 12,
-    color: theme.textSecondary,
-    marginTop: 6,
-  },
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    scroll: {
+      flex: 1,
+    },
+    scrollContent: {
+      paddingHorizontal: 24,
+      paddingTop: 24,
+      paddingBottom: 48,
+    },
+    header: {
+      marginBottom: 24,
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: '800',
+      color: c.text.primary,
+      letterSpacing: 0.3,
+    },
+    subtitle: {
+      fontSize: 14,
+      color: c.text.secondary,
+      marginTop: 6,
+      textTransform: 'capitalize',
+    },
+    // Botones de acción/navegación → violeta.
+    radarGpsButton: {
+      backgroundColor: c.action.base,
+      paddingVertical: 16,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      marginBottom: 24,
+      alignItems: 'center',
+      ...Platform.select({
+        ios: {
+          shadowColor: c.action.base,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 8,
+        },
+        android: { elevation: 4 },
+      }),
+    },
+    radarGpsButtonText: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: c.onAction,
+    },
+    incidenciaButton: {
+      backgroundColor: c.action.base,
+      paddingVertical: 16,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      marginBottom: 12,
+      alignItems: 'center',
+      ...Platform.select({
+        ios: {
+          shadowColor: c.action.base,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.25,
+          shadowRadius: 8,
+        },
+        android: { elevation: 4 },
+      }),
+    },
+    anuncioButton: {
+      backgroundColor: c.action.base,
+      paddingVertical: 16,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      marginBottom: 24,
+      alignItems: 'center',
+      ...Platform.select({
+        ios: {
+          shadowColor: c.action.base,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.25,
+          shadowRadius: 8,
+        },
+        android: { elevation: 4 },
+      }),
+    },
+    loadingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginBottom: 24,
+    },
+    loadingText: {
+      fontSize: 14,
+      color: c.text.secondary,
+      fontWeight: '500',
+    },
+    emptyText: {
+      fontSize: 14,
+      color: c.text.tertiary,
+      fontStyle: 'italic',
+      marginBottom: 8,
+    },
+    metricsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+      marginBottom: 28,
+    },
+    metricCard: {
+      flex: 1,
+      minWidth: '30%',
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 6,
+        },
+        android: { elevation: 3 },
+      }),
+    },
+    metricValue: {
+      fontSize: 22,
+      fontWeight: '800',
+      color: c.text.primary,
+      marginTop: 8,
+    },
+    metricLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+      marginTop: 4,
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: c.text.primary,
+      marginBottom: 12,
+    },
+    section: {
+      marginBottom: 24,
+    },
+    approvalCard: {
+      backgroundColor: c.surface.card,
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 10,
+      borderLeftWidth: 4,
+      borderLeftColor: c.brand.base,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+        },
+        android: { elevation: 2 },
+      }),
+    },
+    approvalName: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: c.text.primary,
+    },
+    approvalTipo: {
+      fontSize: 13,
+      color: c.text.secondary,
+      marginTop: 2,
+    },
+    // Estado "esperando aprobación" = pendiente → warning.
+    approvalEstado: {
+      fontSize: 12,
+      color: c.semantic.warning.text,
+      fontWeight: '600',
+      marginTop: 4,
+    },
+    radarCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: c.surface.card,
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+        },
+        android: { elevation: 2 },
+      }),
+    },
+    radarChecklist: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: c.text.primary,
+    },
+    radarRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    radarPct: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: c.brand.base,
+    },
+    radarOk: {},
+    radarPending: {},
+    incidenciaCard: {
+      backgroundColor: c.surface.card,
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 10,
+      borderLeftWidth: 4,
+      borderLeftColor: c.brand.base,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+        },
+        android: { elevation: 2 },
+      }),
+    },
+    incidenciaDesc: {
+      fontSize: 12,
+      color: c.text.secondary,
+      marginTop: 6,
+    },
+  });

@@ -20,6 +20,7 @@ import type { TabCompositeNavigation } from '../types/navigation';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
+import { useTheme, type Palette } from '../theme';
 import type { GamificationBalanceRow, GamificationSettingsRow } from '../lib/gamificationRows';
 import {
   formatGamificationQuantity,
@@ -64,24 +65,6 @@ type BoostRow = {
   title?: string | null;
   description?: string | null;
 };
-
-// Paleta VIP Zone alineada al portal web QuantixHR
-const VIP = {
-  // Fondo general muy claro (área de contenido)
-  bgScreen: '#F3F4F6',
-  // Tarjetas y superficies principales (blanco limpio)
-  cardLavender: '#FFFFFF',
-  // Color protagonista de la tarjeta de saldo (teal corporativo)
-  purpleDeep: '#00C2D1',
-  // Texto principal sobre fondos claros
-  textOnLight: '#1E293B',
-  // Texto secundario/gris suave
-  textMuted: '#64748B',
-  // Botones de acción destacados (naranja corporativo)
-  buttonGold: '#FF9F43',
-  // Botón de cerrar sesión (rojo corporativo)
-  buttonLogout: '#FF3F48',
-} as const;
 
 type BadgeModalType = 'star' | 'trophy' | 'ribbon' | 'rocket' | null;
 
@@ -133,6 +116,8 @@ function pickTrimmedNamePart(...candidates: (string | null | undefined)[]): stri
 export default function PerfilScreen() {
   const { session, authProfile, employeeRecord, refreshProfile } = useAuth();
   const navigation = useNavigation<TabCompositeNavigation<'Perfil'>>();
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const [perfil, setPerfil] = useState<PerfilState>({
     nombre: '',
     cargo: '',
@@ -770,7 +755,7 @@ export default function PerfilScreen() {
         style={styles.container}
         contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefreshPerfil} tintColor={VIP.purpleDeep} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefreshPerfil} tintColor={palette.brand.base} />
         }
       >
         <Text style={styles.vipTitle}>VIP ZONE</Text>
@@ -778,7 +763,7 @@ export default function PerfilScreen() {
         <View style={styles.headerCard}>
         {isLoading ? (
           <View style={styles.loadingRow}>
-            <ActivityIndicator color={VIP.purpleDeep} />
+            <ActivityIndicator color={palette.brand.base} />
             <Text style={styles.loadingText}>Cargando...</Text>
           </View>
         ) : (
@@ -788,7 +773,7 @@ export default function PerfilScreen() {
                 <Image source={{ uri: avatarUrl }} style={styles.avatar} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
-                  <Ionicons name="person" size={28} color={VIP.textMuted} />
+                  <Ionicons name="person" size={28} color={palette.text.tertiary} />
                 </View>
               )}
             </View>
@@ -805,7 +790,7 @@ export default function PerfilScreen() {
         <View style={styles.coinsCard}>
           <View style={styles.coinsTop}>
             <View style={styles.coinsBadge}>
-              <Ionicons name="trophy" size={18} color={VIP.buttonGold} />
+              <Ionicons name="trophy" size={18} color="#FFFFFF" />
               <Text style={styles.coinsBadgeText}>{gamificationDisplayName(currencyName)}</Text>
             </View>
             <Text style={styles.currencySymbol}>{currencySymbol || '🪙'}</Text>
@@ -868,7 +853,7 @@ export default function PerfilScreen() {
                   <View style={styles.modalMisionesList}>
                     {isModalLoading ? (
                       <View style={styles.modalLoaderRow}>
-                        <ActivityIndicator size="small" color={VIP.purpleDeep} />
+                        <ActivityIndicator size="small" color={palette.brand.base} />
                         <Text style={styles.modalLoaderText}>Cargando misiones...</Text>
                       </View>
                     ) : missions.length === 0 ? (
@@ -901,7 +886,7 @@ export default function PerfilScreen() {
                   <View style={styles.leaderboardList}>
                     {isModalLoading ? (
                       <View style={styles.modalLoaderRow}>
-                        <ActivityIndicator size="small" color={VIP.purpleDeep} />
+                        <ActivityIndicator size="small" color={palette.brand.base} />
                         <Text style={styles.modalLoaderText}>Cargando ranking...</Text>
                       </View>
                     ) : leaderboard.length === 0 ? (
@@ -926,7 +911,7 @@ export default function PerfilScreen() {
                   <View style={styles.insigniasGrid}>
                     {isModalLoading ? (
                       <View style={styles.modalLoaderRow}>
-                        <ActivityIndicator size="small" color={VIP.purpleDeep} />
+                        <ActivityIndicator size="small" color={palette.brand.base} />
                         <Text style={styles.modalLoaderText}>Cargando insignias...</Text>
                       </View>
                     ) : insignias.length === 0 ? (
@@ -937,7 +922,7 @@ export default function PerfilScreen() {
                           <View style={styles.insigniaIconWrap}>
                             <BadgeCatalogueIcon
                               iconName={ins.iconKey}
-                              color={ins.iconColor ?? VIP.purpleDeep}
+                              color={ins.iconColor ?? palette.brand.base}
                               size={28}
                             />
                           </View>
@@ -970,7 +955,7 @@ export default function PerfilScreen() {
                   <Text style={styles.modalTitle}>🚀 Boosts Activos</Text>
                   {isModalLoading ? (
                     <View style={styles.modalLoaderRow}>
-                      <ActivityIndicator size="small" color={VIP.purpleDeep} />
+                      <ActivityIndicator size="small" color={palette.brand.base} />
                       <Text style={styles.modalLoaderText}>Cargando boosts...</Text>
                     </View>
                   ) : boosts.length === 0 ? (
@@ -1096,7 +1081,7 @@ export default function PerfilScreen() {
             }}
             activeOpacity={0.85}
           >
-            <Ionicons name="bug-outline" size={18} color={VIP.textOnLight} />
+            <Ionicons name="bug-outline" size={18} color={palette.action.base} />
             <Text style={styles.sentryTestText}>Test Sentry (solo desarrollo)</Text>
           </TouchableOpacity>
         ) : null}
@@ -1111,587 +1096,594 @@ export default function PerfilScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: VIP.bgScreen,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 28,
-    gap: 16,
-  },
-  vipTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: VIP.textOnLight,
-    letterSpacing: 3,
-    marginBottom: 12,
-    textTransform: 'uppercase',
-  },
-  headerCard: {
-    backgroundColor: VIP.cardLavender,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 0,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.4,
-        shadowRadius: 20,
-      },
-      android: { elevation: 4 },
-    }),
-  },
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    minHeight: 72,
-  },
-  loadingText: {
-    color: VIP.textMuted,
-    fontWeight: '600',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  avatarWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    overflow: 'hidden',
-    backgroundColor: '#f1f5f9',
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-  },
-  avatarPlaceholder: {
-    width: 56,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerMeta: {
-    flex: 1,
-  },
-  name: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: VIP.textOnLight,
-  },
-  role: {
-    marginTop: 4,
-    fontSize: 13,
-    fontWeight: '600',
-    color: VIP.textMuted,
-  },
-  coinsCard: {
-    backgroundColor: VIP.purpleDeep,
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: VIP.buttonGold,
-    overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: VIP.purpleDeep,
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.18,
-        shadowRadius: 16,
-      },
-      android: { elevation: 4 },
-    }),
-  },
-  coinsTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  coinsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: VIP.buttonGold,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  coinsBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: VIP.textOnLight,
-  },
-  coinsValue: {
-    marginTop: 18,
-    fontSize: 46,
-    fontWeight: '900',
-    color: '#fefce8',
-    letterSpacing: 0.4,
-  },
-  coinsSub: {
-    marginTop: 6,
-    fontSize: 13,
-    color: '#fef9c3',
-    fontWeight: '600',
-  },
-  /** Reserva alto y evita colapso del track horizontal de copas en Android. */
-  copaPathSlot: {
-    minHeight: 140,
-    overflow: 'visible',
-  },
-  currencySymbol: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#facc15',
-  },
-  badgesRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 16,
-    marginBottom: 4,
-    backgroundColor: VIP.cardLavender,
-  },
-  badgeCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: VIP.purpleDeep,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  catalogButton: {
-    marginTop: 16,
-    backgroundColor: 'transparent',
-    borderRadius: 999,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: VIP.purpleDeep,
-  },
-  catalogButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: VIP.purpleDeep,
-  },
-  storeButton: {
-    marginTop: 12,
-    backgroundColor: VIP.buttonGold,
-    borderRadius: 999,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: VIP.buttonGold,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.35,
-        shadowRadius: 10,
-      },
-      android: { elevation: 4 },
-    }),
-  },
-  storeButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: VIP.textOnLight,
-  },
-  sectionHeader: {
-    marginTop: 4,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: VIP.textOnLight,
-  },
-  sectionHint: {
-    marginTop: 4,
-    fontSize: 12,
-    color: VIP.textMuted,
-    fontWeight: '600',
-  },
-  historyCard: {
-    backgroundColor: VIP.cardLavender,
-    borderRadius: 16,
-    borderWidth: 0,
-    paddingVertical: 8,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  historyEmpty: {
-    fontSize: 13,
-    color: VIP.textOnLight,
-    fontStyle: 'italic',
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-    textAlign: 'center',
-  },
-  historyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 10,
-    backgroundColor: VIP.cardLavender,
-  },
-  historyDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  dotGreen: {
-    backgroundColor: '#22c55e',
-  },
-  dotRed: {
-    backgroundColor: '#ef4444',
-  },
-  historyText: {
-    flex: 1,
-  },
-  historyTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: VIP.textOnLight,
-  },
-  historySub: {
-    marginTop: 4,
-    fontSize: 12,
-    color: VIP.textMuted,
-    fontWeight: '600',
-  },
-  points: {
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  pointsGreen: {
-    color: '#10b981',
-  },
-  pointsRed: {
-    color: '#ef4444',
-  },
-  sentryTestButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: VIP.bgScreen,
-    borderWidth: 1,
-    borderColor: VIP.buttonGold,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  sentryTestText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: VIP.textOnLight,
-  },
-  logoutButton: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    borderWidth: 1.5,
-    borderColor: VIP.buttonLogout,
-    borderRadius: 14,
-    paddingVertical: 14,
-    backgroundColor: VIP.buttonLogout,
-  },
-  logoutText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  laborSectionHeader: {
-    marginTop: 24,
-  },
-  laborTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: VIP.textOnLight,
-  },
-  laborCard: {
-    marginTop: 10,
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  laborLabel: {
-    fontSize: 13,
-    color: '#4b5563',
-    marginBottom: 6,
-  },
-  laborValue: {
-    fontWeight: '700',
-    color: '#111827',
-  },
-  laborHint: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: VIP.textMuted,
-  },
-  functionsCard: {
-    marginTop: 16,
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  functionsTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0f172a',
-    marginBottom: 8,
-  },
-  functionRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 4,
-  },
-  functionBullet: {
-    marginRight: 6,
-    fontSize: 12,
-    color: '#4b5563',
-    marginTop: 1,
-  },
-  functionText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#4b5563',
-  },
-  // ——— Modal VIP (badges) ———
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 24,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.2,
-        shadowRadius: 16,
-      },
-      android: { elevation: 8 },
-    }),
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: VIP.textOnLight,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  modalCloseButton: {
-    marginTop: 20,
-    backgroundColor: VIP.purpleDeep,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  modalCloseText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-  modalMisionesList: {
-    gap: 12,
-  },
-  modalLoaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 8,
-  },
-  modalLoaderText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: VIP.textMuted,
-  },
-  modalEmptyText: {
-    textAlign: 'center',
-    fontSize: 13,
-    fontWeight: '600',
-    color: VIP.textMuted,
-    paddingVertical: 10,
-  },
-  misionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  misionCheck: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: VIP.textMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  misionCheckDone: {
-    backgroundColor: '#22c55e',
-    borderColor: '#22c55e',
-  },
-  misionTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: VIP.textOnLight,
-  },
-  misionPts: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: VIP.purpleDeep,
-  },
-  leaderboardList: {
-    gap: 10,
-  },
-  leaderboardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: VIP.bgScreen,
-    borderRadius: 12,
-    gap: 10,
-  },
-  leaderboardRank: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: VIP.purpleDeep,
-    minWidth: 28,
-  },
-  leaderboardName: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: VIP.textOnLight,
-  },
-  leaderboardCoins: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: VIP.buttonGold,
-  },
-  insigniasGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-  },
-  insigniaItem: {
-    width: '47%',
-    backgroundColor: VIP.cardLavender,
-    borderRadius: 14,
-    padding: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d4c4dc',
-  },
-  insigniaIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  insigniaName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: VIP.textOnLight,
-    textAlign: 'center',
-  },
-  insigniaPts: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: VIP.buttonGold,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  insigniaDesc: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: VIP.textMuted,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  boostCard: {
-    backgroundColor: VIP.cardLavender,
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: VIP.purpleDeep,
-  },
-  boostLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: VIP.purpleDeep,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 6,
-  },
-  boostTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: VIP.textOnLight,
-    lineHeight: 22,
-  },
-  boostBadge: {
-    alignSelf: 'flex-start',
-    marginTop: 12,
-    backgroundColor: VIP.buttonGold,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  boostBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: VIP.textOnLight,
-  },
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    content: {
+      padding: 20,
+      paddingBottom: 28,
+      gap: 16,
+    },
+    vipTitle: {
+      fontSize: 18,
+      fontWeight: '900',
+      color: c.text.primary,
+      letterSpacing: 3,
+      marginBottom: 12,
+      textTransform: 'uppercase',
+    },
+    headerCard: {
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 0,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 0.4,
+          shadowRadius: 20,
+        },
+        android: { elevation: 4 },
+      }),
+    },
+    loadingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      minHeight: 72,
+    },
+    loadingText: {
+      color: c.text.secondary,
+      fontWeight: '600',
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+    },
+    avatarWrap: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      overflow: 'hidden',
+      backgroundColor: c.surface.sunken,
+    },
+    avatar: {
+      width: 56,
+      height: 56,
+    },
+    avatarPlaceholder: {
+      width: 56,
+      height: 56,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerMeta: {
+      flex: 1,
+    },
+    name: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: c.text.primary,
+    },
+    role: {
+      marginTop: 4,
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.text.secondary,
+    },
+    // Tarjeta de saldo: banda índigo, texto claro (referencia web).
+    coinsCard: {
+      backgroundColor: c.brand.base,
+      borderRadius: 18,
+      padding: 18,
+      borderWidth: 1,
+      borderColor: c.brand.darkest,
+      overflow: 'hidden',
+      ...Platform.select({
+        ios: {
+          shadowColor: c.brand.darkest,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.18,
+          shadowRadius: 16,
+        },
+        android: { elevation: 4 },
+      }),
+    },
+    coinsTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    coinsBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: c.action.bright,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+    },
+    coinsBadgeText: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#FFFFFF',
+    },
+    coinsValue: {
+      marginTop: 18,
+      fontSize: 46,
+      fontWeight: '900',
+      color: '#FFFFFF',
+      letterSpacing: 0.4,
+    },
+    coinsSub: {
+      marginTop: 6,
+      fontSize: 13,
+      color: c.brand.subtle,
+      fontWeight: '600',
+    },
+    /** Reserva alto y evita colapso del track horizontal de copas en Android. */
+    copaPathSlot: {
+      minHeight: 140,
+      overflow: 'visible',
+    },
+    currencySymbol: {
+      fontSize: 22,
+      fontWeight: '800',
+      color: c.action.subtle,
+    },
+    badgesRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 16,
+      marginBottom: 4,
+      backgroundColor: c.background,
+    },
+    // Círculos de badges = navegación/identidad → índigo.
+    badgeCircle: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: c.brand.base,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    // Botón outline = acción → violeta.
+    catalogButton: {
+      marginTop: 16,
+      backgroundColor: 'transparent',
+      borderRadius: 999,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: c.action.base,
+    },
+    catalogButtonText: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: c.action.base,
+    },
+    // CTA principal "Canjear" = acción → violeta.
+    storeButton: {
+      marginTop: 12,
+      backgroundColor: c.action.base,
+      borderRadius: 999,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...Platform.select({
+        ios: {
+          shadowColor: c.action.base,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.35,
+          shadowRadius: 10,
+        },
+        android: { elevation: 4 },
+      }),
+    },
+    storeButtonText: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: c.onAction,
+    },
+    sectionHeader: {
+      marginTop: 4,
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: c.text.primary,
+    },
+    sectionHint: {
+      marginTop: 4,
+      fontSize: 12,
+      color: c.text.secondary,
+      fontWeight: '600',
+    },
+    historyCard: {
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      borderWidth: 0,
+      paddingVertical: 8,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 10,
+        },
+        android: { elevation: 2 },
+      }),
+    },
+    historyEmpty: {
+      fontSize: 13,
+      color: c.text.secondary,
+      fontStyle: 'italic',
+      paddingHorizontal: 14,
+      paddingVertical: 16,
+      textAlign: 'center',
+    },
+    historyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      gap: 10,
+      backgroundColor: c.surface.card,
+    },
+    historyDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+    },
+    // Transacción positiva/negativa = semántica success/danger.
+    dotGreen: {
+      backgroundColor: c.semantic.success.color,
+    },
+    dotRed: {
+      backgroundColor: c.semantic.danger.color,
+    },
+    historyText: {
+      flex: 1,
+    },
+    historyTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: c.text.primary,
+    },
+    historySub: {
+      marginTop: 4,
+      fontSize: 12,
+      color: c.text.secondary,
+      fontWeight: '600',
+    },
+    points: {
+      fontSize: 13,
+      fontWeight: '900',
+    },
+    pointsGreen: {
+      color: c.semantic.success.color,
+    },
+    pointsRed: {
+      color: c.semantic.danger.color,
+    },
+    sentryTestButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: c.background,
+      borderWidth: 1,
+      borderColor: c.action.base,
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+    },
+    sentryTestText: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: c.text.primary,
+    },
+    // Cerrar sesión = acción destructiva → rojo/danger.
+    logoutButton: {
+      marginTop: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      borderWidth: 1.5,
+      borderColor: c.semantic.danger.color,
+      borderRadius: 14,
+      paddingVertical: 14,
+      backgroundColor: c.semantic.danger.color,
+    },
+    logoutText: {
+      color: '#FFFFFF',
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    laborSectionHeader: {
+      marginTop: 24,
+    },
+    laborTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: c.text.primary,
+    },
+    laborCard: {
+      marginTop: 10,
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+        },
+        android: { elevation: 2 },
+      }),
+    },
+    laborLabel: {
+      fontSize: 13,
+      color: c.text.secondary,
+      marginBottom: 6,
+    },
+    laborValue: {
+      fontWeight: '700',
+      color: c.text.primary,
+    },
+    laborHint: {
+      fontSize: 12,
+      fontWeight: '500',
+      color: c.text.secondary,
+    },
+    functionsCard: {
+      marginTop: 16,
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+        },
+        android: { elevation: 2 },
+      }),
+    },
+    functionsTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: c.text.primary,
+      marginBottom: 8,
+    },
+    functionRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      marginBottom: 4,
+    },
+    functionBullet: {
+      marginRight: 6,
+      fontSize: 12,
+      color: c.text.secondary,
+      marginTop: 1,
+    },
+    functionText: {
+      flex: 1,
+      fontSize: 13,
+      color: c.text.secondary,
+    },
+    // ——— Modal VIP (badges) ———
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: c.backdrop,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    modalCard: {
+      width: '100%',
+      maxWidth: 360,
+      backgroundColor: c.surface.card,
+      borderRadius: 20,
+      padding: 24,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.2,
+          shadowRadius: 16,
+        },
+        android: { elevation: 8 },
+      }),
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: c.text.primary,
+      marginBottom: 16,
+      textAlign: 'center',
+    },
+    modalCloseButton: {
+      marginTop: 20,
+      backgroundColor: c.action.base,
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: 'center',
+    },
+    modalCloseText: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: c.onAction,
+    },
+    modalMisionesList: {
+      gap: 12,
+    },
+    modalLoaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      paddingVertical: 8,
+    },
+    modalLoaderText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.text.secondary,
+    },
+    modalEmptyText: {
+      textAlign: 'center',
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.text.secondary,
+      paddingVertical: 10,
+    },
+    misionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    misionCheck: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 2,
+      borderColor: c.text.tertiary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    misionCheckDone: {
+      backgroundColor: c.semantic.success.color,
+      borderColor: c.semantic.success.color,
+    },
+    misionTitle: {
+      flex: 1,
+      fontSize: 14,
+      fontWeight: '600',
+      color: c.text.primary,
+    },
+    misionPts: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: c.action.base,
+    },
+    leaderboardList: {
+      gap: 10,
+    },
+    leaderboardRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      backgroundColor: c.surface.sunken,
+      borderRadius: 12,
+      gap: 10,
+    },
+    leaderboardRank: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: c.brand.base,
+      minWidth: 28,
+    },
+    leaderboardName: {
+      flex: 1,
+      fontSize: 14,
+      fontWeight: '600',
+      color: c.text.primary,
+    },
+    leaderboardCoins: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: c.action.base,
+    },
+    insigniasGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 16,
+    },
+    insigniaItem: {
+      width: '47%',
+      backgroundColor: c.surface.card,
+      borderRadius: 14,
+      padding: 14,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    insigniaIconWrap: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: c.surface.sunken,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 8,
+    },
+    insigniaName: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: c.text.primary,
+      textAlign: 'center',
+    },
+    insigniaPts: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: c.action.base,
+      textAlign: 'center',
+      marginTop: 4,
+    },
+    insigniaDesc: {
+      fontSize: 10,
+      fontWeight: '500',
+      color: c.text.secondary,
+      textAlign: 'center',
+      marginTop: 4,
+    },
+    boostCard: {
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      padding: 18,
+      borderWidth: 1,
+      borderColor: c.action.subtle,
+    },
+    boostLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: c.action.base,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+      marginBottom: 6,
+    },
+    boostTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: c.text.primary,
+      lineHeight: 22,
+    },
+    boostBadge: {
+      alignSelf: 'flex-start',
+      marginTop: 12,
+      backgroundColor: c.action.bright,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 999,
+    },
+    boostBadgeText: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#FFFFFF',
+    },
+  });
 

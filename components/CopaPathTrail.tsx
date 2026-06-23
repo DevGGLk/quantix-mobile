@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,15 +12,9 @@ import {
 import * as Haptics from 'expo-haptics';
 
 import type { CopaPathLevelStep, CopaPathStatus } from '../lib/gamificationCopaPath';
+import { useTheme, type Palette } from '../theme';
 
-/** Alineado a la paleta VIP de PerfilScreen. */
-const T = {
-  cardLavender: '#FFFFFF',
-  textOnLight: '#1E293B',
-  textMuted: '#64748B',
-  buttonGold: '#FF9F43',
-  teal: '#00C2D1',
-} as const;
+type CopaStyles = ReturnType<typeof makeStyles>;
 
 /** Desde `components/` → `assets/gamificacion/*.png` (Metro empaqueta estos requires). */
 const imgBronce = require('../assets/gamificacion/bronce.png');
@@ -89,10 +83,12 @@ function CupStep({
   step,
   index,
   onPress,
+  styles,
 }: {
   step: CopaPathLevelStep;
   index: number;
   onPress: (step: CopaPathLevelStep) => void;
+  styles: CopaStyles;
 }) {
   const locked = step.state === 'locked';
   const px = cupPixelSize(step);
@@ -151,6 +147,9 @@ type CopaPathTrailProps = {
 };
 
 export function CopaPathTrail({ status }: CopaPathTrailProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+
   const { levels, progressPercent, yearlyEarnedPoints, isShortSeason, pointsToNext, nextLevelName } =
     status;
 
@@ -202,7 +201,7 @@ export function CopaPathTrail({ status }: CopaPathTrailProps) {
           contentContainerStyle={styles.cupsRow}
         >
           {levels.map((step, idx) => (
-            <CupStep key={`${step.name}-${step.threshold}-${idx}`} step={step} index={idx} onPress={setSelectedCopa} />
+            <CupStep key={`${step.name}-${step.threshold}-${idx}`} step={step} index={idx} onPress={setSelectedCopa} styles={styles} />
           ))}
         </ScrollView>
       ) : null}
@@ -288,239 +287,244 @@ export function CopaPathTrail({ status }: CopaPathTrailProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: T.cardLavender,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: T.textOnLight,
-    marginBottom: 4,
-  },
-  subStats: {
-    fontSize: 13,
-    color: T.textMuted,
-    marginBottom: 8,
-  },
-  shortSeasonPill: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    marginBottom: 12,
-  },
-  shortSeasonText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#92400E',
-  },
-  cupsScroll: {
-    minHeight: 128,
-    flexGrow: 0,
-  },
-  cupsRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: 8,
-    paddingVertical: 12,
-    minHeight: 120,
-    minWidth: '100%',
-  },
-  cupCol: {
-    alignItems: 'center',
-  },
-  cupImgWrap: {
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  cupLabel: {
-    marginTop: 4,
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.textOnLight,
-    textAlign: 'center',
-    maxWidth: 88,
-  },
-  cupMeta: {
-    marginTop: 2,
-    fontSize: 9,
-    fontWeight: '600',
-    color: T.textMuted,
-    textAlign: 'center',
-    maxWidth: 96,
-  },
-  cupReward: {
-    marginTop: 3,
-    fontSize: 8,
-    fontWeight: '500',
-    color: T.textMuted,
-    textAlign: 'center',
-    maxWidth: 100,
-  },
-  cupLabelMuted: {
-    color: T.textMuted,
-  },
-  track: {
-    marginTop: 10,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: '#FDE68A',
-    overflow: 'hidden',
-  },
-  trackFill: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: T.buttonGold,
-  },
-  hint: {
-    marginTop: 10,
-    fontSize: 12,
-    fontWeight: '600',
-    color: T.textMuted,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 32,
-  },
-  modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    maxWidth: 400,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-    backgroundColor: '#F0FDFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  modalIconWrap: {
-    width: 72,
-    height: 72,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalIcon: {
-    width: 68,
-    height: 68,
-  },
-  modalHeaderText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  modalKicker: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    color: T.teal,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: T.textOnLight,
-  },
-  modalBody: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 8,
-    gap: 16,
-  },
-  modalSection: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
-    padding: 14,
-  },
-  modalSectionReward: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-  },
-  modalSectionTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: T.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  modalSectionTitleReward: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#B45309',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  modalSectionText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: T.textOnLight,
-  },
-  modalEmphasis: {
-    fontWeight: '800',
-    color: T.teal,
-  },
-  modalRewardText: {
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: '600',
-    color: T.textOnLight,
-  },
-  modalSectionMuted: {
-    fontSize: 14,
-    lineHeight: 21,
-    color: T.textMuted,
-  },
-  modalProrateHelp: {
-    marginTop: 6,
-    fontSize: 12,
-    lineHeight: 18,
-    color: T.textMuted,
-  },
-  modalStateLine: {
-    fontSize: 12,
-    color: T.textMuted,
-  },
-  modalStateBold: {
-    fontWeight: '700',
-    color: T.textOnLight,
-  },
-  modalButton: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    marginTop: 8,
-    backgroundColor: T.teal,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    // Tarjeta del camino: banda índigo (las copas doradas se ven sobre ella).
+    card: {
+      backgroundColor: c.brand.base,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: c.brand.darkest,
+    },
+    title: {
+      fontSize: 17,
+      fontWeight: '800',
+      color: '#FFFFFF',
+      marginBottom: 4,
+    },
+    subStats: {
+      fontSize: 13,
+      color: c.brand.subtle,
+      marginBottom: 8,
+    },
+    // Temporada corta = pill violeta.
+    shortSeasonPill: {
+      alignSelf: 'flex-start',
+      backgroundColor: c.action.bright,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 999,
+      marginBottom: 12,
+    },
+    shortSeasonText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    cupsScroll: {
+      minHeight: 128,
+      flexGrow: 0,
+    },
+    cupsRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      justifyContent: 'space-between',
+      gap: 8,
+      paddingVertical: 12,
+      minHeight: 120,
+      minWidth: '100%',
+    },
+    cupCol: {
+      alignItems: 'center',
+    },
+    cupImgWrap: {
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      overflow: 'hidden',
+    },
+    cupLabel: {
+      marginTop: 4,
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      textAlign: 'center',
+      maxWidth: 88,
+    },
+    cupMeta: {
+      marginTop: 2,
+      fontSize: 9,
+      fontWeight: '600',
+      color: c.brand.subtle,
+      textAlign: 'center',
+      maxWidth: 96,
+    },
+    cupReward: {
+      marginTop: 3,
+      fontSize: 8,
+      fontWeight: '500',
+      color: c.brand.subtle,
+      textAlign: 'center',
+      maxWidth: 100,
+    },
+    cupLabelMuted: {
+      color: c.brand.subtle,
+    },
+    // Barra de progreso: relleno violeta sobre track índigo profundo.
+    track: {
+      marginTop: 10,
+      height: 6,
+      borderRadius: 999,
+      backgroundColor: c.brand.darkest,
+      overflow: 'hidden',
+    },
+    trackFill: {
+      height: '100%',
+      borderRadius: 999,
+      backgroundColor: c.action.bright,
+    },
+    hint: {
+      marginTop: 10,
+      fontSize: 12,
+      fontWeight: '600',
+      color: c.brand.subtle,
+    },
+    // Popup de detalle de copa: tarjeta clara con acentos violeta.
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: c.backdrop,
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 32,
+    },
+    modalCard: {
+      backgroundColor: c.surface.card,
+      borderRadius: 20,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: c.border,
+      maxWidth: 400,
+      width: '100%',
+      alignSelf: 'center',
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      paddingHorizontal: 20,
+      paddingTop: 20,
+      paddingBottom: 16,
+      backgroundColor: c.action.tint,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+    },
+    modalIconWrap: {
+      width: 72,
+      height: 72,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalIcon: {
+      width: 68,
+      height: 68,
+    },
+    modalHeaderText: {
+      flex: 1,
+      minWidth: 0,
+    },
+    modalKicker: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.6,
+      color: c.action.base,
+      textTransform: 'uppercase',
+      marginBottom: 4,
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontWeight: '800',
+      color: c.text.primary,
+    },
+    modalBody: {
+      paddingHorizontal: 20,
+      paddingTop: 18,
+      paddingBottom: 8,
+      gap: 16,
+    },
+    modalSection: {
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.surface.sunken,
+      padding: 14,
+    },
+    modalSectionReward: {
+      backgroundColor: c.action.tint,
+      borderColor: c.action.subtle,
+    },
+    modalSectionTitle: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: c.text.tertiary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: 8,
+    },
+    modalSectionTitleReward: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: c.action.base,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: 8,
+    },
+    modalSectionText: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: c.text.primary,
+    },
+    modalEmphasis: {
+      fontWeight: '800',
+      color: c.action.base,
+    },
+    modalRewardText: {
+      fontSize: 15,
+      lineHeight: 22,
+      fontWeight: '600',
+      color: c.text.primary,
+    },
+    modalSectionMuted: {
+      fontSize: 14,
+      lineHeight: 21,
+      color: c.text.secondary,
+    },
+    modalProrateHelp: {
+      marginTop: 6,
+      fontSize: 12,
+      lineHeight: 18,
+      color: c.text.secondary,
+    },
+    modalStateLine: {
+      fontSize: 12,
+      color: c.text.secondary,
+    },
+    modalStateBold: {
+      fontWeight: '700',
+      color: c.text.primary,
+    },
+    modalButton: {
+      marginHorizontal: 20,
+      marginBottom: 20,
+      marginTop: 8,
+      backgroundColor: c.mode === 'dark' ? c.action.bright : c.action.base,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    modalButtonText: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: c.onAction,
+    },
+  });

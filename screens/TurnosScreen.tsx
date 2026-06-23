@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { supabase } from '../lib/supabase';
-import { theme } from '../lib/theme';
+import { useTheme, type Palette } from '../theme';
 import { useAuth } from '../lib/AuthContext';
 
 type Turno = {
@@ -88,6 +88,8 @@ export default function TurnosScreen() {
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { session, employee } = useAuth();
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
 
   useEffect(() => {
     let isMounted = true;
@@ -196,7 +198,7 @@ export default function TurnosScreen() {
     <View style={[styles.card, item.isToday && styles.cardToday]}>
       <View style={styles.cardTop}>
         <View style={styles.dateRow}>
-          <Ionicons name="calendar-outline" size={18} color="#2563eb" />
+          <Ionicons name="calendar-outline" size={18} color={palette.brand.base} />
           <Text style={styles.dateText}>{item.fecha}</Text>
         </View>
         <View
@@ -245,12 +247,12 @@ export default function TurnosScreen() {
 
       {isLoading ? (
         <View style={styles.loading}>
-          <ActivityIndicator size="large" color="#2563eb" />
+          <ActivityIndicator size="large" color={palette.brand.base} />
           <Text style={styles.loadingText}>Cargando...</Text>
         </View>
       ) : turnos.length === 0 ? (
         <View style={styles.empty}>
-          <Ionicons name="calendar-clear-outline" size={64} color="#94a3b8" />
+          <Ionicons name="calendar-clear-outline" size={64} color={palette.text.tertiary} />
           <Text style={styles.emptyTitle}>No tienes turnos programados</Text>
           <Text style={styles.emptyText}>
             No tienes turnos programados en este momento. ¡Disfruta tu descanso!
@@ -269,163 +271,167 @@ export default function TurnosScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  header: {
-    paddingTop: 18,
-    paddingHorizontal: 20,
-    paddingBottom: 10,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    padding: 24,
-  },
-  loadingText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.textSecondary,
-  },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-    gap: 12,
-  },
-  card: {
-    backgroundColor: theme.backgroundAlt,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    padding: 14,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  cardToday: {
-    borderColor: theme.primary,
-    borderWidth: 1.6,
-  },
-  cardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  dateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dateText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.textSecondary,
-  },
-  statusChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  statusChipSuccess: {
-    backgroundColor: '#ecfdf5',
-    borderColor: '#bbf7d0',
-  },
-  statusChipWarning: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a',
-  },
-  statusTextSuccess: {
-    color: theme.primary,
-  },
-  statusTextWarning: {
-    color: theme.warning,
-  },
-  cardBody: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-  },
-  timeBlock: {
-    flex: 1,
-  },
-  timeLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.textSecondary,
-  },
-  timeValue: {
-    marginTop: 6,
-    fontSize: 20,
-    fontWeight: '900',
-    color: theme.textPrimary,
-  },
-  timeDivider: {
-    width: 1,
-    height: 44,
-    backgroundColor: theme.border,
-    marginHorizontal: 12,
-  },
-  cardBottom: {
-    marginTop: 12,
-  },
-  branchText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: theme.textPrimary,
-  },
-  areaText: {
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: '600',
-    color: theme.textSecondary,
-  },
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 28,
-    gap: 10,
-  },
-  emptyTitle: {
-    marginTop: 10,
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.textPrimary,
-    textAlign: 'center',
-  },
-  emptyText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: theme.textSecondary,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    header: {
+      paddingTop: 18,
+      paddingHorizontal: 20,
+      paddingBottom: 10,
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: '800',
+      color: c.text.primary,
+    },
+    loading: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 12,
+      padding: 24,
+    },
+    loadingText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: c.text.secondary,
+    },
+    listContent: {
+      paddingHorizontal: 20,
+      paddingBottom: 24,
+      gap: 12,
+    },
+    card: {
+      backgroundColor: c.surface.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+      padding: 14,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 10,
+        },
+        android: { elevation: 2 },
+      }),
+    },
+    // Turno de hoy resaltado en índigo de marca.
+    cardToday: {
+      borderColor: c.brand.base,
+      borderWidth: 1.6,
+    },
+    cardTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    dateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    dateText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: c.text.primary,
+    },
+    statusText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: c.text.secondary,
+    },
+    statusChip: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: c.surface.sunken,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    // Confirmado = verde/success.
+    statusChipSuccess: {
+      backgroundColor: c.semantic.success.surface,
+      borderColor: c.semantic.success.color,
+    },
+    // Borrador = ámbar/warning.
+    statusChipWarning: {
+      backgroundColor: c.semantic.warning.surface,
+      borderColor: c.semantic.warning.color,
+    },
+    statusTextSuccess: {
+      color: c.semantic.success.text,
+    },
+    statusTextWarning: {
+      color: c.semantic.warning.text,
+    },
+    cardBody: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 10,
+      borderRadius: 12,
+      backgroundColor: c.surface.sunken,
+    },
+    timeBlock: {
+      flex: 1,
+    },
+    timeLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: c.text.secondary,
+    },
+    timeValue: {
+      marginTop: 6,
+      fontSize: 20,
+      fontWeight: '900',
+      color: c.text.primary,
+    },
+    timeDivider: {
+      width: 1,
+      height: 44,
+      backgroundColor: c.border,
+      marginHorizontal: 12,
+    },
+    cardBottom: {
+      marginTop: 12,
+    },
+    branchText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: c.text.primary,
+    },
+    areaText: {
+      marginTop: 4,
+      fontSize: 12,
+      fontWeight: '600',
+      color: c.text.secondary,
+    },
+    empty: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 28,
+      gap: 10,
+    },
+    emptyTitle: {
+      marginTop: 10,
+      fontSize: 16,
+      fontWeight: '800',
+      color: c.text.primary,
+      textAlign: 'center',
+    },
+    emptyText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.text.secondary,
+      textAlign: 'center',
+      lineHeight: 18,
+    },
+  });
 
