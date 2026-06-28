@@ -15,10 +15,6 @@ import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 import { errorMessage } from '../lib/errorMessage';
-import {
-  assignGamificationPointsRpc,
-  MAX_SINGLE_POSITIVE_AWARD_POINTS,
-} from '../lib/assignGamificationPointsRpc';
 import type { RootStackNavigation, RootStackParamList } from '../types/navigation';
 
 type ChecklistItem = Record<string, unknown> & {
@@ -196,54 +192,10 @@ export default function ResolverChecklistScreen() {
         if (insertError) throw insertError;
       }
 
-      const { data: settingsRow } = await supabase
-        .from('company_settings')
-        .select('checklist_rewards_enabled')
-        .eq('company_id', companyId)
-        .maybeSingle();
-
-      const rewardsEnabled =
-        (settingsRow as { checklist_rewards_enabled?: boolean | null } | null)
-          ?.checklist_rewards_enabled !== false;
-
-      const cl = checklist as Record<string, unknown>;
-      const givesPoints = cl.gives_points === true;
-      const basePoints = Math.floor(
-        Number(cl.points_reward ?? cl.reward_points ?? cl.points) || 0
-      );
-
-      const shouldAward =
-        completion_percentage === 100 &&
-        !wasAlreadyComplete &&
-        rewardsEnabled &&
-        givesPoints &&
-        basePoints > 0 &&
-        basePoints <= MAX_SINGLE_POSITIVE_AWARD_POINTS;
-
-      if (shouldAward) {
-        const title = String(cl.title ?? 'Checklist').trim() || 'Checklist';
-        const description = `Checklist completado: ${title}`;
-        const { error: rpcError } = await assignGamificationPointsRpc({
-          companyId,
-          employeeId: employeeRowId,
-          amount: basePoints,
-          description,
-          transactionType: 'earned',
-        });
-        if (rpcError) {
-          console.error('Error al asignar puntos (checklist):', rpcError);
-          throw new Error(rpcError.message);
-        }
-      }
-
-      const rewardHint =
-        completion_percentage === 100 && shouldAward
-          ? ' Recompensa registrada vía gamificación.'
-          : '';
-
+      // Economía de puntos retirada: completar el checklist ya no otorga puntos.
       Alert.alert(
         'Checklist enviado',
-        `Cumplimiento: ${completion_percentage}%.${rewardHint}`,
+        `Cumplimiento: ${completion_percentage}%.`,
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (e: unknown) {

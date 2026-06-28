@@ -14,18 +14,12 @@ import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
-import type { GamificationSettingsRow } from '../lib/gamificationRows';
 import { errorMessage } from '../lib/errorMessage';
-import {
-  assignGamificationPointsRpc,
-  MAX_SINGLE_POSITIVE_AWARD_POINTS,
-} from '../lib/assignGamificationPointsRpc';
 
 type Course = {
   id: string;
   title: string;
   description?: string | null;
-  reward_points?: number | null;
 };
 
 export default function AcademiaScreen() {
@@ -35,8 +29,6 @@ export default function AcademiaScreen() {
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [completandoId, setCompletandoId] = useState<string | null>(null);
   const [openingCourseId, setOpeningCourseId] = useState<string | null>(null);
-  const [currencyName, setCurrencyName] = useState<string>('Coins');
-  const [currencySymbol, setCurrencySymbol] = useState<string>('🪙');
 
   useEffect(() => {
     let isMounted = true;
@@ -57,35 +49,6 @@ export default function AcademiaScreen() {
           return;
         }
 
-        // Configuración de gamificación (moneda): currency_name + symbol
-        try {
-          const { data: settings, error: settingsError } = await supabase
-            .from('gamification_settings')
-            .select('currency_name, symbol')
-            .eq('company_id', companyId)
-            .maybeSingle();
-
-          if (settingsError) throw settingsError;
-
-          const srow = settings as GamificationSettingsRow | null;
-          const nextName = String(srow?.currency_name ?? '').trim();
-          const nextSymbol = String(srow?.symbol ?? '').trim();
-
-          if (isMounted) {
-            setCurrencyName(nextName || 'Coins');
-            setCurrencySymbol(nextSymbol || '🪙');
-          }
-        } catch (_settingsErr) {
-          if (isMounted) {
-            setCurrencyName('Coins');
-            setCurrencySymbol('🪙');
-          }
-          Alert.alert(
-            'Error de Conexión',
-            'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
-          );
-        }
-
         const { data, error } = await supabase
           .from('courses')
           .select('*')
@@ -102,11 +65,6 @@ export default function AcademiaScreen() {
             id: String(row.id ?? ''),
             title: typeof row.title === 'string' ? row.title : 'Curso',
             description: typeof row.description === 'string' ? row.description : null,
-            reward_points:
-              (typeof row.points_reward === 'number' ? row.points_reward : null) ??
-              (typeof row.reward_points === 'number' ? row.reward_points : null) ??
-              (typeof row.points === 'number' ? row.points : null) ??
-              null,
           }));
           setCourses(mapped);
         }
@@ -191,13 +149,6 @@ export default function AcademiaScreen() {
     }
     if (completandoId) return;
 
-    const pointsRaw = curso.reward_points ?? 0;
-    const points = Math.floor(
-      typeof pointsRaw === 'number' ? pointsRaw : Number(pointsRaw) || 0
-    );
-    const titulo = curso.title ?? 'Curso';
-    const marker = `[academy_course:${curso.id}]`;
-
     try {
       setCompletandoId(curso.id);
 
@@ -211,34 +162,8 @@ export default function AcademiaScreen() {
       if (progressErr) throw progressErr;
       if (progress && (progress as { is_completed?: boolean }).is_completed) {
         setCompletandoId(null);
-        Alert.alert(
-          'Ya completado',
-          'Ya habías completado este curso. No se pueden sumar puntos dos veces.'
-        );
+        Alert.alert('Ya completado', 'Ya habías completado este curso.');
         return;
-      }
-
-      if (points > MAX_SINGLE_POSITIVE_AWARD_POINTS) {
-        Alert.alert(
-          'Error',
-          'La recompensa configurada para este curso supera el máximo permitido.'
-        );
-        return;
-      }
-
-      if (points > 0) {
-        const description = `Curso de Academia Completado: ${titulo} · ${marker}`;
-        const { error: rpcError } = await assignGamificationPointsRpc({
-          companyId,
-          employeeId,
-          amount: points,
-          description,
-          transactionType: 'earned',
-        });
-        if (rpcError) {
-          console.error('Error al asignar puntos (Academia):', rpcError);
-          throw new Error(rpcError.message);
-        }
       }
 
       const { error: upsertProgressErr } = await supabase
@@ -253,12 +178,7 @@ export default function AcademiaScreen() {
         );
       if (upsertProgressErr) throw upsertProgressErr;
 
-      Alert.alert(
-        '¡Felicidades!',
-        points > 0
-          ? `Has completado el curso y ganado +${points} ${currencyName} ${currencySymbol}`
-          : `Has completado el curso.`
-      );
+      Alert.alert('¡Felicidades!', 'Has completado el curso.');
     } catch (e: unknown) {
       console.error('Error al completar curso:', e);
       Alert.alert(
@@ -298,15 +218,11 @@ export default function AcademiaScreen() {
 
         {hasCourses &&
           courses.map((course) => {
-            const points = course.reward_points ?? 0;
             return (
               <View key={course.id} style={styles.card}>
                 <View style={styles.cardHeader}>
                   <View style={styles.playIconWrap}>
                     <Ionicons name="play-circle" size={36} color={theme.primary} />
-                  </View>
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>+{points} pts</Text>
                   </View>
                 </View>
 
@@ -424,17 +340,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.background,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: theme.warning,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.backgroundAlt,
   },
   cardTitle: {
     fontSize: 16,

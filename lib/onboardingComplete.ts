@@ -1,9 +1,6 @@
 import { supabase } from './supabase';
-import { assignGamificationPointsRpc } from './assignGamificationPointsRpc';
 
 const API_BASE = (process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? '').replace(/\/$/, '');
-
-const REWARD_POINTS = 1000;
 
 export async function completeOnboardingViaApi(
   profileId: string,
@@ -48,8 +45,9 @@ export async function completeOnboardingViaApi(
 }
 
 /**
- * Fallback si el endpoint no está disponible: marca perfil y otorga puntos.
- * `employeeRowId` = fila `employees.id` (FK en gamificación), no el user de Auth.
+ * Fallback si el endpoint no está disponible: marca la inducción como completada.
+ * `employeeRowId` = fila `employees.id`, no el user de Auth.
+ * (La economía de puntos fue retirada: ya no se otorgan puntos por la inducción.)
  */
 export async function completeOnboardingFallback(
   profileUserId: string,
@@ -80,32 +78,6 @@ export async function completeOnboardingFallback(
       raw: e,
     });
     throw e;
-  }
-
-  const { data: empRow, error: empLookupErr } = await supabase
-    .from('employees')
-    .select('company_id')
-    .eq('id', employeeRowId)
-    .maybeSingle();
-  if (empLookupErr) throw empLookupErr;
-
-  const companyId = String((empRow as { company_id?: string | null } | null)?.company_id ?? '').trim();
-  if (!companyId) {
-    console.warn('onboarding fallback: expediente sin company_id; se omiten puntos de gamificación.');
-    return;
-  }
-
-  /** Abono vía RPC: transacción en BD usa columna `amount` en `gamification_transactions` (ver tipos / `assignGamificationPointsRpc`). */
-  const { error: rpcError } = await assignGamificationPointsRpc({
-    companyId,
-    employeeId: employeeRowId,
-    amount: REWARD_POINTS,
-    description: 'Inducción corporativa completada',
-    transactionType: 'earned',
-  });
-  if (rpcError) {
-    console.error('Error al asignar puntos (onboarding):', rpcError);
-    throw new Error(rpcError.message);
   }
 }
 

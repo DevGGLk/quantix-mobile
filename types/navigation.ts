@@ -24,8 +24,6 @@ export type RootStackParamList = {
   Reglamento: undefined;
   NuevaSolicitud: undefined;
   Reportar: undefined;
-  Tienda: undefined;
-  CatalogoInsignias: undefined;
   Academia: undefined;
   Checklists: undefined;
   ResolverChecklist: { checklist: ChecklistRouteParam };
