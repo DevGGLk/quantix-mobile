@@ -275,7 +275,7 @@ export default function PerfilScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefreshPerfil} tintColor={VIP.purpleDeep} />
         }
       >
-        <Text style={styles.vipTitle}>VIP ZONE</Text>
+        <Text style={styles.vipTitle}>Mi Perfil</Text>
         {/* Sección 1: Cabecera de Perfil */}
         <View style={styles.headerCard}>
         {isLoading ? (
