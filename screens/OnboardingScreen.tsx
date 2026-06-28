@@ -51,7 +51,7 @@ function dotLabel(step: number) {
     case 3:
       return 'Mis funciones';
     case 4:
-      return 'Recompensa';
+      return '¡Listo!';
     default:
       return '';
   }
@@ -702,7 +702,7 @@ export default function OnboardingScreen() {
             </View>
             <Text style={styles.cardTitle}>¡Último paso!</Text>
             <Text style={styles.cardBody}>
-              Al finalizar recibirás una recompensa de gamificación por completar tu inducción.
+              Estás a punto de completar tu inducción. ¡Bienvenido/a al equipo!
             </Text>
             <TouchableOpacity
               style={[styles.finishBtn, finishing && styles.finishBtnDisabled]}
@@ -713,7 +713,7 @@ export default function OnboardingScreen() {
               {finishing ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.finishBtnText}>Finalizar Inducción y Ganar 1000 Pts</Text>
+                <Text style={styles.finishBtnText}>Finalizar Inducción</Text>
               )}
             </TouchableOpacity>
           </View>
