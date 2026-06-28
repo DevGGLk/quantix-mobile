@@ -13,7 +13,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
-import { checklistPointsFromRow } from '../lib/checklistReward';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 
@@ -102,7 +101,6 @@ export default function ChecklistsScreen() {
         {!isLoading &&
           hasChecklists &&
           checklists.map((checklist) => {
-            const points = checklistPointsFromRow(checklist as Record<string, unknown>);
             return (
               <TouchableOpacity
                 key={checklist.id}
@@ -112,11 +110,6 @@ export default function ChecklistsScreen() {
               >
                 <View style={styles.cardTop}>
                   <Text style={styles.cardTitle}>{checklist.title}</Text>
-                  {points > 0 && (
-                    <View style={styles.pointsBadge}>
-                      <Text style={styles.pointsText}>+{points} Pts</Text>
-                    </View>
-                  )}
                 </View>
                 {!!checklist.category && (
                   <Text style={styles.cardCategory}>{checklist.category}</Text>
@@ -198,17 +191,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.textPrimary,
     flex: 1,
-  },
-  pointsBadge: {
-    backgroundColor: theme.background,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  pointsText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.primary,
   },
   cardCategory: {
     marginTop: 6,

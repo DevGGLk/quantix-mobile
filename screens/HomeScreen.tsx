@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { TabCompositeNavigation } from '../types/navigation';
 import { HelpModal } from '../components/HelpModal';
+import { CongratsBanner } from '../components/CongratsBanner';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
@@ -904,6 +905,7 @@ export default function HomeScreen() {
         }
       >
         <View style={styles.content}>
+          <CongratsBanner companyId={companyId} />
           <View style={styles.clockSectionHeader}>
             <Text style={styles.clockSectionTitle}>Reloj checador</Text>
             <TouchableOpacity

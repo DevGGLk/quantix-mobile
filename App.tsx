@@ -18,8 +18,6 @@ import ServiciosScreen from './screens/ServiciosScreen';
 import ReglamentoScreen from './screens/ReglamentoScreen';
 import NuevaSolicitudScreen from './screens/NuevaSolicitudScreen';
 import ReportarScreen from './screens/ReportarScreen';
-import TiendaScreen from './screens/TiendaScreen';
-import CatalogoInsigniasScreen from './screens/CatalogoInsigniasScreen';
 import AcademiaScreen from './screens/AcademiaScreen';
 import PerfilScreen from './screens/PerfilScreen';
 import TurnosScreen from './screens/TurnosScreen';
@@ -292,16 +290,6 @@ function AppInner() {
               name="Reportar"
               component={ReportarScreen}
               options={{ title: 'Reportar Compañero' }}
-            />
-            <Stack.Screen
-              name="Tienda"
-              component={TiendaScreen}
-              options={{ title: 'Tienda de Recompensas' }}
-            />
-            <Stack.Screen
-              name="CatalogoInsignias"
-              component={CatalogoInsigniasScreen}
-              options={{ title: 'Catálogo de insignias' }}
             />
             <Stack.Screen
               name="Academia"
