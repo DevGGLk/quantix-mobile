@@ -2,10 +2,42 @@ import { supabase } from './supabase';
 
 const API_BASE = (process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? '').replace(/\/$/, '');
 
+type CompletionResult = { ok: true } | { ok: false; error: string };
+
+/** Interpreta el jsonb `{ ok, error, already_completed }` del RPC `complete_employee_onboarding`. */
+function readRpcResult(data: unknown): CompletionResult {
+  const res = data as { ok?: boolean; error?: string } | null;
+  if (!res?.ok) {
+    return { ok: false, error: res?.error ?? 'No se pudo completar la inducción. Contacta a RRHH.' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Vía canónica: llama el RPC `complete_employee_onboarding` directamente.
+ * Es SECURITY DEFINER con EXECUTE para `authenticated`, así que NO depende del endpoint web
+ * ni de una policy RLS de UPDATE sobre `employees` (que no existe; el `update` directo está
+ * bloqueado por RLS). `employeeRowId` = fila `employees.id`, no el user de Auth.
+ */
+export async function completeOnboardingViaRpc(employeeRowId: string | null): Promise<CompletionResult> {
+  if (!employeeRowId) {
+    return { ok: false, error: 'No hay expediente vinculado. La inducción operativa solo aplica a empleados.' };
+  }
+  const { data, error } = await supabase.rpc('complete_employee_onboarding', {
+    p_employee_id: employeeRowId,
+  });
+  if (error) return { ok: false, error: error.message };
+  return readRpcResult(data);
+}
+
+/**
+ * Fallback opcional: endpoint web (que server-side llama el MISMO RPC). Solo se intenta si
+ * `EXPO_PUBLIC_QUANTIX_API_URL` está configurada. Interpreta el `ok` del payload.
+ */
 export async function completeOnboardingViaApi(
   profileId: string,
   companyId: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<CompletionResult> {
   if (!API_BASE) {
     return { ok: false, error: 'API no configurada' };
   }
@@ -29,7 +61,7 @@ export async function completeOnboardingViaApi(
     } catch {
       json = null;
     }
-    if (!res.ok) {
+    if (!res.ok || json?.ok !== true) {
       const msg =
         (json?.error as string) ??
         (json?.message as string) ??
@@ -44,65 +76,35 @@ export async function completeOnboardingViaApi(
   }
 }
 
-/**
- * Fallback si el endpoint no está disponible: marca la inducción como completada.
- * `employeeRowId` = fila `employees.id`, no el user de Auth.
- * (La economía de puntos fue retirada: ya no se otorgan puntos por la inducción.)
- */
-export async function completeOnboardingFallback(
-  profileUserId: string,
-  employeeRowId: string | null
-): Promise<void> {
-  if (!employeeRowId) {
-    console.warn(
-      '[onboardingComplete] Fallback sin expediente (`employees.id`). La inducción operativa solo aplica a empleados.',
-      { profileUserId }
-    );
-    return;
-  }
-
-  try {
-    const { error: upErr } = await supabase
-      .from('employees')
-      .update({ onboarding_completed: true })
-      .eq('id', employeeRowId);
-    if (upErr) throw upErr;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error('[onboardingComplete] Fallo al marcar inducción en `employees`', {
-      table: 'employees',
-      column: 'onboarding_completed',
-      employeeRowId,
-      hint: 'Verifica migración y RLS de UPDATE en expedientes.',
-      message: msg,
-      raw: e,
-    });
-    throw e;
-  }
-}
-
 export async function runOnboardingCompletion(
   profileUserId: string,
   companyId: string | null,
   employeeRowId: string | null
 ): Promise<void> {
-  try {
-    if (API_BASE && companyId) {
-      const api = await completeOnboardingViaApi(profileUserId, companyId);
-      if (api.ok) return;
-      console.warn('onboarding API fallback:', api.error);
-    }
-    await completeOnboardingFallback(profileUserId, employeeRowId);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error('[runOnboardingCompletion] Error al cerrar inducción', {
+  // 1) RPC directo (preferido): no depende de la API web ni de RLS de UPDATE.
+  const rpc = await completeOnboardingViaRpc(employeeRowId);
+  if (rpc.ok) return;
+
+  // 2) Fallback al endpoint web solo si está configurado (también termina en el mismo RPC).
+  if (API_BASE && companyId) {
+    const api = await completeOnboardingViaApi(profileUserId, companyId);
+    if (api.ok) return;
+    console.error('[runOnboardingCompletion] RPC y API fallaron al cerrar inducción', {
       profileUserId,
       companyId,
       employeeRowId,
-      apiConfigured: Boolean(API_BASE),
-      message: msg,
-      raw: e,
+      rpcError: rpc.error,
+      apiError: api.error,
     });
-    throw e;
+    throw new Error(api.error || rpc.error);
   }
+
+  console.error('[runOnboardingCompletion] Error al cerrar inducción (RPC)', {
+    profileUserId,
+    companyId,
+    employeeRowId,
+    apiConfigured: Boolean(API_BASE),
+    rpcError: rpc.error,
+  });
+  throw new Error(rpc.error);
 }
