@@ -42,38 +42,6 @@ export type Database = {
           functions_description: string | null;
         };
       };
-      badge_catalogue: {
-        Row: {
-          id: string;
-          company_id: string;
-          name: string;
-          description: string | null;
-          criteria: string | null;
-          reward_points: number | null;
-          icon_name: string | null;
-          icon_color: string | null;
-        };
-      };
-      employee_badges: {
-        Row: {
-          id: string;
-          badge_id: string;
-          employee_id: string;
-          points_awarded: number | null;
-        };
-      };
-      /** Ledger: columna `amount` (no `points`). Escritura vía RPC `assign_gamification_points`. */
-      gamification_transactions: {
-        Row: {
-          id: string;
-          employee_id: string | null;
-          company_id: string | null;
-          amount: number | null;
-          description: string | null;
-          transaction_type: string | null;
-          created_at: string | null;
-        };
-      };
       // (El resto de tablas se tipan bajo demanda)
     };
   };
