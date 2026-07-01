@@ -11,6 +11,43 @@ export type ChecklistRouteParam = Record<string, unknown> & {
   category?: string | null;
 };
 
+/** Solicitud de préstamo enviada al detalle (misma forma que LoanRequestRow de lib/loansApi). */
+export type LoanRequestRouteParam = {
+  id: string;
+  employee_id: string;
+  company_id: string;
+  status: string;
+  requested_principal: number;
+  requested_term_periods: number;
+  requested_period_type: string;
+  reason: string;
+  proposed_principal: number | null;
+  proposed_term_periods: number | null;
+  proposed_period_type: string | null;
+  proposed_rate_snapshot: number | null;
+  snapshot_rate_monthly: number;
+  snapshot_rate_annual: number;
+  decision_reason: string | null;
+  expires_at: string | null;
+  resulting_loan_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Préstamo activo enviado a RegistrarPago (misma forma que ActiveLoan de lib/loansApi). */
+export type ActiveLoanRouteParam = {
+  id: string;
+  company_id: string;
+  remaining_balance: number;
+  principal_amount: number | null;
+  total_amount: number;
+  installment_amount: number;
+  period_type: string | null;
+  annual_interest_rate: number | null;
+  status: string;
+  start_date: string | null;
+};
+
 export type MainTabParamList = {
   Home: undefined;
   Turnos: undefined;
@@ -36,6 +73,11 @@ export type RootStackParamList = {
   ReportarIncidencia: undefined;
   CrearAnuncio: undefined;
   MiEmpresa: undefined;
+  Prestamos: undefined;
+  SolicitarPrestamo: undefined;
+  PrestamoDetalle: { request: LoanRequestRouteParam };
+  RegistrarPago: { loan: ActiveLoanRouteParam };
+  MisPagos: undefined;
 };
 
 export type RootStackNavigation = NativeStackNavigationProp<RootStackParamList>;

@@ -12,6 +12,7 @@ type CompanySettings = {
   enable_payroll_view?: boolean;
   enable_extra_hours?: boolean;
   enable_checklists?: boolean;
+  enable_loans?: boolean;
   [key: string]: unknown;
 } | null;
 
@@ -125,7 +126,7 @@ export default function ServiciosScreen() {
             activeOpacity={0.85}
             onPress={() => navigation.navigate('Checklists')}
           >
-            <Ionicons name="checkmark-done-outline" size={32} color="#00C2D1" />
+            <Ionicons name="checkmark-done-outline" size={32} color={theme.primary} />
             <Text style={styles.cardLabel}>Checklists Operativos</Text>
           </TouchableOpacity>
         )}
@@ -138,6 +139,17 @@ export default function ServiciosScreen() {
           >
             <Ionicons name="cash-outline" size={32} color="#16a34a" />
             <Text style={styles.cardLabel}>Mi Planilla</Text>
+          </TouchableOpacity>
+        )}
+
+        {companySettings?.enable_loans !== false && (
+          <TouchableOpacity
+            style={styles.card}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Prestamos')}
+          >
+            <Ionicons name="wallet-outline" size={32} color="#0ea5e9" />
+            <Text style={styles.cardLabel}>Préstamos y adelantos</Text>
           </TouchableOpacity>
         )}
 
