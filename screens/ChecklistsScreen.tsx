@@ -20,7 +20,6 @@ type Checklist = Record<string, unknown> & {
   id: string;
   title: string;
   category?: string | null;
-  reward_points?: number | null;
 };
 
 export default function ChecklistsScreen() {

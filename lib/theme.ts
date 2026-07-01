@@ -1,6 +1,6 @@
 /**
  * Master Palette QuantixHR (SaaS RRHH): turquesa identidad, navy profundo, off-white.
- * `primary` = acciones activas / marca; `accent` = gamificación, puntos, alertas no críticas.
+ * `primary` = acciones activas / marca; `accent` = alertas no críticas / acentos cálidos.
  */
 export const theme = {
   primary: '#00C2D1',
@@ -17,7 +17,7 @@ export const theme = {
   textSecondary: '#475569',
   textMuted: '#64748B',
   border: '#E2E8F0',
-  /** Fondo suave (gamificación / acentos cálidos) */
+  /** Fondo suave (acentos cálidos) */
   subtleBackground: '#FEF3E7',
   storeBackground: '#F1F5F9',
   cardBorderRadius: 16,

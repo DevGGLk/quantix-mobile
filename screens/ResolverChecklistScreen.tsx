@@ -192,7 +192,6 @@ export default function ResolverChecklistScreen() {
         if (insertError) throw insertError;
       }
 
-      // Economía de puntos retirada: completar el checklist ya no otorga puntos.
       Alert.alert(
         'Checklist enviado',
         `Cumplimiento: ${completion_percentage}%.`,

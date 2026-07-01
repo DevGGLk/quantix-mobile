@@ -9,7 +9,6 @@ export type ChecklistRouteParam = Record<string, unknown> & {
   id: string;
   title?: string | null;
   category?: string | null;
-  reward_points?: number | null;
 };
 
 export type MainTabParamList = {
