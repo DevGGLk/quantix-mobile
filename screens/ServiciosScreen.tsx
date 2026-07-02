@@ -124,6 +124,15 @@ export default function ServiciosScreen() {
           <Text style={styles.cardLabel}>Mi Historial</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('MisActivos')}
+        >
+          <Ionicons name="cube-outline" size={32} color="#7c3aed" />
+          <Text style={styles.cardLabel}>Mis Activos Asignados</Text>
+        </TouchableOpacity>
+
         {companySettings?.enable_checklists === true && (
           <TouchableOpacity
             style={styles.card}

@@ -16,6 +16,7 @@ import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import ServiciosScreen from './screens/ServiciosScreen';
 import ReglamentoScreen from './screens/ReglamentoScreen';
+import MisActivosScreen from './screens/MisActivosScreen';
 import NuevaSolicitudScreen from './screens/NuevaSolicitudScreen';
 import ReportarScreen from './screens/ReportarScreen';
 import AcademiaScreen from './screens/AcademiaScreen';
@@ -285,6 +286,11 @@ function AppInner() {
               name="Reglamento"
               component={ReglamentoScreen}
               options={{ title: 'Reglamento Interno' }}
+            />
+            <Stack.Screen
+              name="MisActivos"
+              component={MisActivosScreen}
+              options={{ title: 'Mis Activos Asignados' }}
             />
             <Stack.Screen
               name="NuevaSolicitud"

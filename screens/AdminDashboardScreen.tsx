@@ -42,6 +42,9 @@ type IncidenciaItem = {
   profiles: { first_name?: string | null; last_name?: string | null } | null;
 };
 
+/** Miembro del equipo para el panel de asistencia del día. */
+type TeamMember = { id: string; name: string };
+
 function formatHoy(): string {
   return new Date().toLocaleDateString('es', {
     weekday: 'long',
@@ -57,6 +60,20 @@ function startOfTodayISO(): string {
   return d.toISOString();
 }
 
+/** Fecha de negocio de hoy (YYYY-MM-DD) en la zona del dispositivo (Nicaragua = America/Managua). */
+function todayBusinessDate(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Nombre legible desde un join de `employees`. */
+function employeeName(emp: { first_name?: string | null; last_name?: string | null } | null | undefined): string {
+  return [emp?.first_name, emp?.last_name].filter(Boolean).join(' ').trim() || 'Empleado';
+}
+
 export default function AdminDashboardScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<RootStackNavigation>();
@@ -67,6 +84,8 @@ export default function AdminDashboardScreen() {
   const [permisosPendientesCount, setPermisosPendientesCount] = useState(0);
   const [checklistsHoy, setChecklistsHoy] = useState<ChecklistHoy[]>([]);
   const [ausenciasHoy, setAusenciasHoy] = useState(0);
+  const [teamPresent, setTeamPresent] = useState<TeamMember[]>([]);
+  const [teamAbsent, setTeamAbsent] = useState<TeamMember[]>([]);
   const [horasExtrasPendientes, setHorasExtrasPendientes] = useState(0);
   const [ultimasIncidencias, setUltimasIncidencias] = useState<IncidenciaItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -204,6 +223,34 @@ export default function AdminDashboardScreen() {
           return q;
         };
 
+        // Agendados hoy (no día libre, no archivado) — quiénes debían trabajar.
+        const buildAgendaHoy = () => {
+          let q = supabase
+            .from('schedules')
+            .select('employee_id, employees!inner(first_name, last_name, branch_id)')
+            .eq('company_id', companyId)
+            .eq('business_date', todayBusinessDate())
+            .eq('is_day_off', false)
+            .neq('status', 'archived');
+          if (filterByBranch) {
+            q = q.eq('branch_id', primaryBranchId);
+          }
+          return q;
+        };
+
+        // Marcajes de hoy — quiénes efectivamente llegaron.
+        const buildPresentesHoy = () => {
+          let q = supabase
+            .from('time_entries')
+            .select('employee_id, employees!inner(first_name, last_name, branch_id)')
+            .eq('company_id', companyId)
+            .gte('clock_in', startOfToday);
+          if (filterByBranch) {
+            q = q.eq('employees.branch_id', primaryBranchId);
+          }
+          return q;
+        };
+
         const fetchIncidencias = async (): Promise<IncidenciaItem[]> => {
           const limit = filterByBranch ? 40 : 3;
           const { data: rows, error: incErr } = await supabase
@@ -262,20 +309,31 @@ export default function AdminDashboardScreen() {
           });
         };
 
-        const [tardanzasRes, solicitudesLegacyRes, solicitudesTorRes, checklistsRes, horasExtrasRes] =
-          await Promise.all([
-            buildTardanzas(),
-            buildSolicitudesLegacy(),
-            buildSolicitudesTimeOff(),
-            buildChecklists(),
-            buildHorasExtras(),
-          ]);
+        const [
+          tardanzasRes,
+          solicitudesLegacyRes,
+          solicitudesTorRes,
+          checklistsRes,
+          horasExtrasRes,
+          agendaHoyRes,
+          presentesHoyRes,
+        ] = await Promise.all([
+          buildTardanzas(),
+          buildSolicitudesLegacy(),
+          buildSolicitudesTimeOff(),
+          buildChecklists(),
+          buildHorasExtras(),
+          buildAgendaHoy(),
+          buildPresentesHoy(),
+        ]);
 
         if (tardanzasRes.error) throw tardanzasRes.error;
         if (solicitudesLegacyRes.error) throw solicitudesLegacyRes.error;
         if (solicitudesTorRes.error) throw solicitudesTorRes.error;
         if (checklistsRes.error) throw checklistsRes.error;
         if (horasExtrasRes.error) throw horasExtrasRes.error;
+        if (agendaHoyRes.error) throw agendaHoyRes.error;
+        if (presentesHoyRes.error) throw presentesHoyRes.error;
 
         const incidenciasItems = await fetchIncidencias();
 
@@ -321,12 +379,38 @@ export default function AdminDashboardScreen() {
         const totalPendientes =
           (solicitudesLegacyRes.count ?? 0) + (solicitudesTorRes.count ?? 0);
 
+        // Estado del equipo hoy: presentes = con marcaje; ausentes = agendados sin marcaje.
+        type JoinRow = {
+          employee_id?: string | null;
+          employees?: { first_name?: string | null; last_name?: string | null } | null;
+        };
+        const presentMap = new Map<string, string>();
+        for (const r of (presentesHoyRes.data ?? []) as JoinRow[]) {
+          const id = String(r.employee_id ?? '').trim();
+          if (id) presentMap.set(id, employeeName(r.employees));
+        }
+        const scheduledMap = new Map<string, string>();
+        for (const r of (agendaHoyRes.data ?? []) as JoinRow[]) {
+          const id = String(r.employee_id ?? '').trim();
+          if (id) scheduledMap.set(id, employeeName(r.employees));
+        }
+        const presentes: TeamMember[] = [...presentMap.entries()]
+          .map(([id, name]) => ({ id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const ausentes: TeamMember[] = [...scheduledMap.entries()]
+          .filter(([id]) => !presentMap.has(id))
+          .map(([id, name]) => ({ id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+
         setTardanzasHoy(tardanzasRes.count ?? 0);
         setSolicitudesPendientes(merged);
         setPermisosPendientesCount(totalPendientes);
         setChecklistsHoy((checklistsRes.data ?? []) as unknown as ChecklistHoy[]);
         setHorasExtrasPendientes(horasExtrasRes.count ?? 0);
         setUltimasIncidencias(incidenciasItems);
+        setTeamPresent(presentes);
+        setTeamAbsent(ausentes);
+        setAusenciasHoy(ausentes.length);
       } catch (e) {
         console.error('Error fetch dashboard:', e);
         if (isMounted) {
@@ -340,6 +424,9 @@ export default function AdminDashboardScreen() {
           setChecklistsHoy([]);
           setHorasExtrasPendientes(0);
           setUltimasIncidencias([]);
+          setTeamPresent([]);
+          setTeamAbsent([]);
+          setAusenciasHoy(0);
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -416,6 +503,56 @@ export default function AdminDashboardScreen() {
                 <Text style={styles.metricValue}>{horasExtrasPendientes}</Text>
                 <Text style={[styles.metricLabel, { color: theme.accent }]}>Horas Extras por Aprobar</Text>
               </View>
+            </View>
+
+            <Text style={styles.sectionTitle}>Estado del equipo hoy</Text>
+            <View style={styles.section}>
+              <View style={styles.teamRow}>
+                <View style={[styles.teamPill, { backgroundColor: `${theme.success}1A` }]}>
+                  <Ionicons name="checkmark-circle-outline" size={18} color={theme.success} />
+                  <Text style={[styles.teamPillText, { color: theme.success }]}>
+                    {teamPresent.length} Presentes
+                  </Text>
+                </View>
+                <View style={[styles.teamPill, { backgroundColor: `${theme.danger}1A` }]}>
+                  <Ionicons name="person-remove-outline" size={18} color={theme.danger} />
+                  <Text style={[styles.teamPillText, { color: theme.danger }]}>
+                    {teamAbsent.length} Ausentes
+                  </Text>
+                </View>
+              </View>
+
+              {teamPresent.length === 0 && teamAbsent.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  No hay turnos agendados ni marcajes registrados para hoy.
+                </Text>
+              ) : (
+                <>
+                  <Text style={styles.teamGroupLabel}>✅ Llegaron a trabajar</Text>
+                  {teamPresent.length === 0 ? (
+                    <Text style={styles.emptyText}>Nadie ha marcado entrada todavía.</Text>
+                  ) : (
+                    teamPresent.map((m) => (
+                      <View key={`p-${m.id}`} style={styles.teamMemberRow}>
+                        <View style={[styles.teamDot, { backgroundColor: theme.success }]} />
+                        <Text style={styles.teamMemberName}>{m.name}</Text>
+                      </View>
+                    ))
+                  )}
+
+                  <Text style={[styles.teamGroupLabel, { marginTop: 14 }]}>🔴 Ausentes (agendados sin marcaje)</Text>
+                  {teamAbsent.length === 0 ? (
+                    <Text style={styles.emptyText}>Sin ausencias: todos los agendados marcaron.</Text>
+                  ) : (
+                    teamAbsent.map((m) => (
+                      <View key={`a-${m.id}`} style={styles.teamMemberRow}>
+                        <View style={[styles.teamDot, { backgroundColor: theme.danger }]} />
+                        <Text style={styles.teamMemberName}>{m.name}</Text>
+                      </View>
+                    ))
+                  )}
+                </>
+              )}
             </View>
 
             <Text style={styles.sectionTitle}>Bandeja de Aprobaciones</Text>
@@ -682,6 +819,46 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.textPrimary,
     marginBottom: 12,
+  },
+  teamRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+  teamPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  teamPillText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  teamGroupLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.textSecondary,
+    marginBottom: 8,
+  },
+  teamMemberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+  },
+  teamDot: {
+    height: 8,
+    width: 8,
+    borderRadius: 4,
+  },
+  teamMemberName: {
+    fontSize: 14,
+    color: theme.textPrimary,
+    fontWeight: '500',
   },
   section: {
     marginBottom: 24,

@@ -58,6 +58,7 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   MainTabs: undefined;
   Reglamento: undefined;
+  MisActivos: undefined;
   NuevaSolicitud: undefined;
   Reportar: undefined;
   Academia: undefined;
