@@ -8,9 +8,12 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { StackScreenNavigation } from '../types/navigation';
 import { theme } from '../lib/theme';
 import {
@@ -38,6 +41,7 @@ function termUnit(p: PeriodType): string {
 
 export default function SolicitarPrestamoScreen() {
   const navigation = useNavigation<StackScreenNavigation>();
+  const headerHeight = useHeaderHeight();
   const [ctx, setCtx] = useState<LoanCalculatorContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -162,6 +166,11 @@ export default function SolicitarPrestamoScreen() {
   }
 
   return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : headerHeight}
+    >
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
       {/* Información financiera */}
       <View style={styles.card}>
@@ -370,6 +379,7 @@ export default function SolicitarPrestamoScreen() {
         enviar una contraoferta según tu antigüedad, estabilidad y capacidad de respaldo.
       </Text>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

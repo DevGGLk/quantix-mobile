@@ -390,6 +390,11 @@ export default function ReglamentoScreen() {
     [employee?.company_id, profile?.company_id]
   );
 
+  const branchId = useMemo(
+    () => (employee?.branch_id ?? null)?.trim() || null,
+    [employee?.branch_id]
+  );
+
   const loadReglamento = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -398,22 +403,41 @@ export default function ReglamentoScreen() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('company_policies')
-        .select('id, title, content, order_index')
-        .eq('company_id', companyId)
-        .order('order_index', { ascending: true });
+      let md = '';
 
-      if (error) throw error;
+      // Fuente autoritativa (misma que la web): reglamento por sucursal en `branches.rulebook`.
+      if (branchId) {
+        const { data: br, error: brErr } = await supabase
+          .from('branches')
+          .select('rulebook')
+          .eq('id', branchId)
+          .eq('company_id', companyId)
+          .maybeSingle();
+        if (!brErr && br) {
+          md = String((br as { rulebook?: unknown }).rulebook ?? '').trim();
+        }
+      }
 
-      const rows: ChapterRow[] = (data ?? []).map((row: Record<string, unknown>) => ({
-        id: String(row.id ?? ''),
-        title: typeof row.title === 'string' ? row.title : '',
-        content: typeof row.content === 'string' ? row.content : '',
-      }));
+      // Fallback 1: capítulos en `company_policies` (esquema alternativo por empresa).
+      if (!md.trim()) {
+        const { data, error } = await supabase
+          .from('company_policies')
+          .select('id, title, content, order_index')
+          .eq('company_id', companyId)
+          .order('order_index', { ascending: true });
 
-      let md = buildCombinedMarkdown(rows);
+        if (error) throw error;
 
+        const rows: ChapterRow[] = (data ?? []).map((row: Record<string, unknown>) => ({
+          id: String(row.id ?? ''),
+          title: typeof row.title === 'string' ? row.title : '',
+          content: typeof row.content === 'string' ? row.content : '',
+        }));
+
+        md = buildCombinedMarkdown(rows);
+      }
+
+      // Fallback 2: legado en `companies.settings.reglamento_interno`.
       if (!md.trim()) {
         const { data: comp, error: compErr } = await supabase
           .from('companies')
@@ -443,7 +467,7 @@ export default function ReglamentoScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [companyId]);
+  }, [companyId, branchId]);
 
   useEffect(() => {
     void loadReglamento();

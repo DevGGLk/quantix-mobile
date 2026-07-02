@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
@@ -22,6 +23,7 @@ import { errorMessage } from '../lib/errorMessage';
 export default function ReporteHorasExtrasScreen() {
   const navigation = useNavigation<RootStackNavigation>();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { employee: employeeRecord, profile: authProfile } = useAuth();
 
   const [fecha, setFecha] = useState(() => {
@@ -93,7 +95,8 @@ export default function ReporteHorasExtrasScreen() {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : headerHeight}
     >
       <ScrollView
         style={styles.scroll}

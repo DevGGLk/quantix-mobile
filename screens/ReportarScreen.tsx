@@ -13,6 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
@@ -48,6 +49,7 @@ interface Collaborator {
 export default function ReportarScreen() {
   const navigation = useNavigation<RootStackNavigation>();
   const { session, employee } = useAuth();
+  const headerHeight = useHeaderHeight();
 
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [isLoadingCollabs, setIsLoadingCollabs] = useState(true);
@@ -288,8 +290,8 @@ export default function ReportarScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : headerHeight}
     >
       <ScrollView
         style={styles.scroll}

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, Alert, Platform, ActivityIndicator,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { RootStackParamList, StackScreenNavigation } from '../types/navigation';
 import { theme } from '../lib/theme';
 import {
@@ -41,6 +43,7 @@ function fmtDateLabel(d: Date): string {
 
 export default function RegistrarPagoScreen() {
   const navigation = useNavigation<StackScreenNavigation>();
+  const headerHeight = useHeaderHeight();
   const route = useRoute<RouteProp<RootStackParamList, 'RegistrarPago'>>();
   const { loan } = route.params;
 
@@ -120,7 +123,12 @@ export default function RegistrarPagoScreen() {
   const isSettlement = paymentType === 'early_settlement';
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : headerHeight}
+    >
+    <ScrollView style={styles.container} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
       <View style={styles.headerCard}>
         <Text style={styles.headerLabel}>Saldo pendiente</Text>
         <Text style={styles.headerAmount}>C${fmtMoney(loan.remaining_balance)}</Text>
@@ -254,6 +262,7 @@ export default function RegistrarPagoScreen() {
         Tu pago queda EN REVISIÓN y no afecta tu saldo hasta que Contabilidad lo confirme. Recibirás un recibo cuando se confirme.
       </Text>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
