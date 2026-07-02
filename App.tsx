@@ -16,6 +16,7 @@ import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import ServiciosScreen from './screens/ServiciosScreen';
 import ReglamentoScreen from './screens/ReglamentoScreen';
+import MisActivosScreen from './screens/MisActivosScreen';
 import NuevaSolicitudScreen from './screens/NuevaSolicitudScreen';
 import ReportarScreen from './screens/ReportarScreen';
 import AcademiaScreen from './screens/AcademiaScreen';
@@ -33,6 +34,11 @@ import ReporteHorasExtrasScreen from './screens/ReporteHorasExtrasScreen';
 import ReportarIncidenciaScreen from './screens/ReportarIncidenciaScreen';
 import CrearAnuncioScreen from './screens/CrearAnuncioScreen';
 import MiEmpresaScreen from './screens/MiEmpresaScreen';
+import PrestamosScreen from './screens/PrestamosScreen';
+import SolicitarPrestamoScreen from './screens/SolicitarPrestamoScreen';
+import PrestamoDetalleScreen from './screens/PrestamoDetalleScreen';
+import RegistrarPagoScreen from './screens/RegistrarPagoScreen';
+import MisPagosScreen from './screens/MisPagosScreen';
 import type { MainTabParamList, RootStackParamList } from './types/navigation';
 import { initSentryFromEnv } from './lib/sentryInit';
 
@@ -282,6 +288,11 @@ function AppInner() {
               options={{ title: 'Reglamento Interno' }}
             />
             <Stack.Screen
+              name="MisActivos"
+              component={MisActivosScreen}
+              options={{ title: 'Mis Activos Asignados' }}
+            />
+            <Stack.Screen
               name="NuevaSolicitud"
               component={NuevaSolicitudScreen}
               options={{ title: 'Nueva Solicitud' }}
@@ -355,6 +366,31 @@ function AppInner() {
               name="MiEmpresa"
               component={MiEmpresaScreen}
               options={{ title: 'Mi Empresa' }}
+            />
+            <Stack.Screen
+              name="Prestamos"
+              component={PrestamosScreen}
+              options={{ title: 'Préstamos y adelantos' }}
+            />
+            <Stack.Screen
+              name="SolicitarPrestamo"
+              component={SolicitarPrestamoScreen}
+              options={{ title: 'Solicitar préstamo' }}
+            />
+            <Stack.Screen
+              name="PrestamoDetalle"
+              component={PrestamoDetalleScreen}
+              options={{ title: 'Detalle de solicitud' }}
+            />
+            <Stack.Screen
+              name="RegistrarPago"
+              component={RegistrarPagoScreen}
+              options={{ title: 'Registrar pago' }}
+            />
+            <Stack.Screen
+              name="MisPagos"
+              component={MisPagosScreen}
+              options={{ title: 'Mis pagos' }}
             />
           </Stack.Navigator>
         </NavigationContainer>

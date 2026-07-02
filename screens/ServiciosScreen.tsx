@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { TabCompositeNavigation } from '../types/navigation';
@@ -12,6 +12,7 @@ type CompanySettings = {
   enable_payroll_view?: boolean;
   enable_extra_hours?: boolean;
   enable_checklists?: boolean;
+  enable_loans?: boolean;
   [key: string]: unknown;
 } | null;
 
@@ -61,7 +62,11 @@ export default function ServiciosScreen() {
   }, [employee?.company_id]);
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.title}>Centro de Servicios</Text>
 
       <View style={styles.grid}>
@@ -119,13 +124,22 @@ export default function ServiciosScreen() {
           <Text style={styles.cardLabel}>Mi Historial</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('MisActivos')}
+        >
+          <Ionicons name="cube-outline" size={32} color="#7c3aed" />
+          <Text style={styles.cardLabel}>Mis Activos Asignados</Text>
+        </TouchableOpacity>
+
         {companySettings?.enable_checklists === true && (
           <TouchableOpacity
             style={styles.card}
             activeOpacity={0.85}
             onPress={() => navigation.navigate('Checklists')}
           >
-            <Ionicons name="checkmark-done-outline" size={32} color="#00C2D1" />
+            <Ionicons name="checkmark-done-outline" size={32} color={theme.primary} />
             <Text style={styles.cardLabel}>Checklists Operativos</Text>
           </TouchableOpacity>
         )}
@@ -138,6 +152,17 @@ export default function ServiciosScreen() {
           >
             <Ionicons name="cash-outline" size={32} color="#16a34a" />
             <Text style={styles.cardLabel}>Mi Planilla</Text>
+          </TouchableOpacity>
+        )}
+
+        {companySettings?.enable_loans !== false && (
+          <TouchableOpacity
+            style={styles.card}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Prestamos')}
+          >
+            <Ionicons name="wallet-outline" size={32} color="#0ea5e9" />
+            <Text style={styles.cardLabel}>Préstamos y adelantos</Text>
           </TouchableOpacity>
         )}
 
@@ -170,7 +195,7 @@ export default function ServiciosScreen() {
           </TouchableOpacity>
         )}
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -178,8 +203,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.background,
+  },
+  content: {
     paddingHorizontal: 24,
     paddingTop: 24,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 22,

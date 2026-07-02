@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { RootStackNavigation } from '../types/navigation';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
@@ -41,6 +42,7 @@ function resolveSuggestionCompanyId(
 export default function SugerenciasScreen() {
   const navigation = useNavigation<RootStackNavigation>();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { session, employee: employeeRecord, profile: authProfile } = useAuth();
 
   const [category, setCategory] = useState<string>(CATEGORIAS[0].id);
@@ -112,8 +114,8 @@ export default function SugerenciasScreen() {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : headerHeight}
     >
       <ScrollView
         style={styles.scroll}

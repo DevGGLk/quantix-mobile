@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
@@ -25,8 +26,8 @@ const SOLICITUDES_AUSENCIA_TABLA = 'time_off_requests' as const;
 
 type LeaveType = 'Vacaciones' | 'Permiso por Enfermedad' | 'Asunto Personal';
 
-/** Valores alineados con la columna `time_off_requests.leave_type` (esquema confirmado en Supabase). */
-function mapLeaveTypeToLeaveType(type: LeaveType): string {
+/** Valores alineados con la columna `time_off_requests.request_type` (CHECK confirmado en Supabase). */
+function mapLeaveTypeToRequestType(type: LeaveType): string {
   switch (type) {
     case 'Vacaciones':
       return 'Vacaciones';
@@ -58,6 +59,7 @@ function normalizeCompanyId(
 export default function NuevaSolicitudScreen() {
   const { session, employee: employeeRecord, profile: authProfile } = useAuth();
   const navigation = useNavigation<RootStackNavigation>();
+  const headerHeight = useHeaderHeight();
 
   const [consentimientoLegal, setConsentimientoLegal] = useState(false);
   const [selectedType, setSelectedType] = useState<LeaveType>('Vacaciones');
@@ -150,16 +152,16 @@ export default function NuevaSolicitudScreen() {
         return;
       }
 
-      const tipoAusencia = mapLeaveTypeToLeaveType(selectedType);
+      const tipoAusencia = mapLeaveTypeToRequestType(selectedType);
       const payload = {
         company_id,
         employee_id: employeeRowId,
-        leave_type: tipoAusencia,
+        request_type: tipoAusencia,
         start_date: startDateIso,
         end_date: endDateIso,
         days_deducted: daysDeducted,
         notes: reason.trim(),
-        status: 'pending',
+        status: 'pendiente',
       };
 
       const { error: insertError } = await supabase.from(SOLICITUDES_AUSENCIA_TABLA).insert(payload);
@@ -193,8 +195,8 @@ export default function NuevaSolicitudScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : headerHeight}
     >
       <ScrollView
         style={styles.scroll}

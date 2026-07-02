@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
@@ -23,6 +24,7 @@ import { errorMessage } from '../lib/errorMessage';
 export default function CrearAnuncioScreen() {
   const navigation = useNavigation<RootStackNavigation>();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { session, profile, employee } = useAuth();
 
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -130,7 +132,8 @@ export default function CrearAnuncioScreen() {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : headerHeight}
     >
       <ScrollView
         style={styles.scroll}

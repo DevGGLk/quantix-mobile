@@ -25,8 +25,8 @@ const VIP = {
   bgScreen: '#F3F4F6',
   // Tarjetas y superficies principales (blanco limpio)
   cardLavender: '#FFFFFF',
-  // Color protagonista de la tarjeta de saldo (teal corporativo)
-  purpleDeep: '#00C2D1',
+  // Color protagonista de la tarjeta de saldo (índigo de marca)
+  purpleDeep: '#3C3489',
   // Texto principal sobre fondos claros
   textOnLight: '#1E293B',
   // Texto secundario/gris suave
