@@ -13,6 +13,7 @@ type CompanySettings = {
   enable_extra_hours?: boolean;
   enable_checklists?: boolean;
   enable_loans?: boolean;
+  enable_hours_report?: boolean;
   [key: string]: unknown;
 } | null;
 
@@ -175,14 +176,17 @@ export default function ServiciosScreen() {
           <Text style={styles.cardLabel}>Buzón de Sugerencias</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.85}
-          onPress={() => navigation.navigate('MisHoras')}
-        >
-          <Ionicons name="bar-chart-outline" size={32} color={theme.accent} />
-          <Text style={styles.cardLabel}>Mis Horas</Text>
-        </TouchableOpacity>
+        {/* Toggle enable_hours_report (default ON): aplica a app Y portal web */}
+        {companySettings?.enable_hours_report !== false && (
+          <TouchableOpacity
+            style={styles.card}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('MisHoras')}
+          >
+            <Ionicons name="bar-chart-outline" size={32} color={theme.accent} />
+            <Text style={styles.cardLabel}>Mis Horas</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={styles.card}
