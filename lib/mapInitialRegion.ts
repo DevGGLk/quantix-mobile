@@ -1,7 +1,14 @@
 import * as Location from 'expo-location';
-import type { Region } from 'react-native-maps';
 
 import { parseBranchGeo } from './geo';
+
+/** Región de mapa (lat/lng + deltas). Local para no depender de react-native-maps. */
+export type Region = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
 
 const DELTA_NEAR = 0.08;
 
