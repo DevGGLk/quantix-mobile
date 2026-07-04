@@ -178,6 +178,15 @@ export default function ServiciosScreen() {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.85}
+          onPress={() => navigation.navigate('MisHoras')}
+        >
+          <Ionicons name="bar-chart-outline" size={32} color={theme.accent} />
+          <Text style={styles.cardLabel}>Mis Horas</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.85}
           onPress={() => navigation.navigate('ReporteHorasExtras')}
         >
           <Ionicons name="time-outline" size={32} color="#ea580c" />

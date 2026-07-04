@@ -28,6 +28,7 @@ import PlanillaScreen from './screens/PlanillaScreen';
 import MiDisciplinaScreen from './screens/MiDisciplinaScreen';
 import SugerenciasScreen from './screens/SugerenciasScreen';
 import HorasExtrasScreen from './screens/HorasExtrasScreen';
+import MisHorasScreen from './screens/MisHorasScreen';
 import AdminDashboardScreen from './screens/AdminDashboardScreen';
 import MapaEmpleadosScreen from './screens/MapaEmpleadosScreen';
 import ReporteHorasExtrasScreen from './screens/ReporteHorasExtrasScreen';
@@ -336,6 +337,11 @@ function AppInner() {
               name="HorasExtras"
               component={HorasExtrasScreen}
               options={{ title: 'Mis Horas Extras' }}
+            />
+            <Stack.Screen
+              name="MisHoras"
+              component={MisHorasScreen}
+              options={{ title: 'Mis Horas' }}
             />
             <Stack.Screen
               name="AdminDashboard"
