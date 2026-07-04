@@ -16,17 +16,14 @@ import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
 
-type ExtraHoursRecord = {
+/** Reporte de horas extra del colaborador (tabla canónica: overtime_approvals). */
+type OvertimeReport = {
   id: string;
-  record_date: string;
-  hours_reported?: number | null;
-  hours_performed?: number | null;
-  hours_worked?: number | null;
-  hours_realizadas?: number | null;
-  hours_approved?: number | null;
-  horas_autorizadas?: number | null;
+  date: string;
+  hours: number | null;
   status?: string | null;
-  [key: string]: unknown;
+  hr_notes?: string | null;
+  is_paid?: boolean | null;
 };
 
 function formatDate(dateStr: string): string {
@@ -44,10 +41,10 @@ function formatDate(dateStr: string): string {
 
 function getStatusStyle(status: string | null | undefined) {
   const s = (status ?? '').toLowerCase();
-  if (s === 'approved') {
-    return { bg: theme.background, text: theme.primary };
+  if (s === 'aprobada') {
+    return { bg: theme.background, text: theme.success };
   }
-  if (s === 'rejected') {
+  if (s === 'rechazada') {
     return { bg: theme.background, text: theme.danger };
   }
   return { bg: theme.background, text: theme.warning };
@@ -55,39 +52,34 @@ function getStatusStyle(status: string | null | undefined) {
 
 function getStatusLabel(status: string | null | undefined): string {
   const s = (status ?? '').toLowerCase();
-  if (s === 'approved') return 'Aprobado';
-  if (s === 'rejected') return 'Rechazado';
+  if (s === 'aprobada') return 'Aprobada';
+  if (s === 'rechazada') return 'Rechazada';
   return 'Pendiente';
 }
 
-function RecordCard({ item }: { item: ExtraHoursRecord }) {
-  const realizadas =
-    item.hours_reported ??
-    item.hours_performed ??
-    item.hours_worked ??
-    item.hours_realizadas ??
-    0;
-  const autorizadas =
-    item.hours_approved ?? item.horas_autorizadas ?? 0;
-  const status = item.status ?? 'pending';
+function RecordCard({ item }: { item: OvertimeReport }) {
+  const status = item.status ?? 'pendiente';
   const statusStyle = getStatusStyle(status);
   const statusLabel = getStatusLabel(status);
 
   return (
     <View style={styles.card}>
-      <Text style={styles.date}>{formatDate(item.record_date)}</Text>
+      <Text style={styles.date}>{formatDate(item.date)}</Text>
       <View style={styles.row}>
-        <Text style={styles.label}>Horas Realizadas</Text>
-        <Text style={styles.valueGray}>{Number(realizadas).toFixed(1)} h</Text>
+        <Text style={styles.label}>Horas Reportadas</Text>
+        <Text style={styles.valueBold}>{(Number(item.hours) || 0).toFixed(1)} h</Text>
       </View>
-      <View style={styles.row}>
-        <Text style={styles.label}>Horas Autorizadas</Text>
-        <Text style={styles.valueBold}>{Number(autorizadas).toFixed(1)} h</Text>
-      </View>
+      {item.hr_notes ? (
+        <View style={styles.row}>
+          <Text style={styles.label}>Nota de RRHH</Text>
+          <Text style={styles.valueGray}>{item.hr_notes}</Text>
+        </View>
+      ) : null}
       <View style={styles.pillWrap}>
         <View style={[styles.pill, { backgroundColor: statusStyle.bg }]}>
           <Text style={[styles.pillText, { color: statusStyle.text }]}>
             {statusLabel}
+            {status === 'aprobada' && item.is_paid ? ' · Pagada' : ''}
           </Text>
         </View>
       </View>
@@ -99,7 +91,7 @@ export default function HorasExtrasScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<RootStackNavigation>();
   const { employee } = useAuth();
-  const [records, setRecords] = useState<ExtraHoursRecord[]>([]);
+  const [records, setRecords] = useState<OvertimeReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const goToReporte = useCallback(() => {
@@ -120,17 +112,18 @@ export default function HorasExtrasScreen() {
           return;
         }
 
+        // Tabla canónica de auto-reportes (misma que el portal web y el panel de RRHH)
         const { data, error } = await supabase
-          .from('extra_hours_records')
-          .select('*')
+          .from('overtime_approvals')
+          .select('id, date, hours, status, hr_notes, is_paid')
           .eq('employee_id', employeeRowId)
           .eq('company_id', companyId)
-          .order('record_date', { ascending: false });
+          .order('date', { ascending: false });
 
         if (error) throw error;
 
         if (isMounted) {
-          setRecords((data as ExtraHoursRecord[]) ?? []);
+          setRecords((data as OvertimeReport[]) ?? []);
         }
       } catch (e) {
         console.error('Error al cargar horas extras:', e);

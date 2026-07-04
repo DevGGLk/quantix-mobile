@@ -68,17 +68,19 @@ export default function ReporteHorasExtrasScreen() {
         return;
       }
 
-      /** `extra_hours_records.employee_id` FK → `employees.id` (ver esquema web / blueprint). */
+      // Tabla canónica de auto-reportes: overtime_approvals (misma que el portal web).
+      // RRHH aprueba desde su panel y recién ahí se crea el snapshot financiero
+      // en extra_hours_records (el empleado ya no escribe en esa tabla).
       const payload = {
         company_id,
         employee_id: employeeRowId,
-        record_date: fecha,
-        hours_reported: horasNum,
-        notes: justificacion.trim(),
-        status: 'pending',
+        date: fecha,
+        hours: horasNum,
+        employee_notes: justificacion.trim() || null,
+        status: 'pendiente',
       };
 
-      const { error } = await supabase.from('extra_hours_records').insert(payload);
+      const { error } = await supabase.from('overtime_approvals').insert(payload);
       if (error) throw error;
 
       Alert.alert('Enviado', 'Tu reporte de horas extras ha sido registrado y está pendiente de aprobación.', [
