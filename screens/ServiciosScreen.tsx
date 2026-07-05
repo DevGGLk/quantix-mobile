@@ -188,6 +188,8 @@ export default function ServiciosScreen() {
           </TouchableOpacity>
         )}
 
+        {/* El historial de extras reportadas vive DENTRO de "Mis Horas" (reorg jul-04):
+            de 3 tarjetas de horas quedan 2 — Mis Horas (ver) y Reporte (hacer). */}
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.85}
@@ -196,17 +198,6 @@ export default function ServiciosScreen() {
           <Ionicons name="time-outline" size={32} color="#ea580c" />
           <Text style={styles.cardLabel}>Reporte Horas Extras</Text>
         </TouchableOpacity>
-
-        {companySettings?.enable_extra_hours === true && (
-          <TouchableOpacity
-            style={styles.card}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('HorasExtras')}
-          >
-            <Ionicons name="time-outline" size={32} color={theme.primary} />
-            <Text style={styles.cardLabel}>Mis Horas Extras</Text>
-          </TouchableOpacity>
-        )}
       </View>
     </ScrollView>
   );

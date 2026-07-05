@@ -27,7 +27,6 @@ import ResolverChecklistScreen from './screens/ResolverChecklistScreen';
 import PlanillaScreen from './screens/PlanillaScreen';
 import MiDisciplinaScreen from './screens/MiDisciplinaScreen';
 import SugerenciasScreen from './screens/SugerenciasScreen';
-import HorasExtrasScreen from './screens/HorasExtrasScreen';
 import MisHorasScreen from './screens/MisHorasScreen';
 import AdminDashboardScreen from './screens/AdminDashboardScreen';
 import MapaEmpleadosScreen from './screens/MapaEmpleadosScreen';
@@ -332,11 +331,6 @@ function AppInner() {
               name="Sugerencias"
               component={SugerenciasScreen}
               options={{ title: 'Buzón de Sugerencias' }}
-            />
-            <Stack.Screen
-              name="HorasExtras"
-              component={HorasExtrasScreen}
-              options={{ title: 'Mis Horas Extras' }}
             />
             <Stack.Screen
               name="MisHoras"

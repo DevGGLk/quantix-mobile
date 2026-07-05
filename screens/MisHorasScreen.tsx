@@ -8,10 +8,23 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
+import { useAuth } from '../lib/AuthContext';
 
 type QuincenaPeriod = { period_start: string; period_end: string; label: string };
+
+/** Auto-reporte de horas extra (tabla canónica: overtime_approvals). */
+type OvertimeReport = {
+  id: string;
+  date: string;
+  hours: number | null;
+  status?: string | null;
+  hr_notes?: string | null;
+  is_paid?: boolean | null;
+};
 
 type DayRow = {
   date: string;
@@ -69,13 +82,51 @@ function fmtRange(start: string, end: string): string {
   return `${s.getDate()} ${MESES_CORTOS[s.getMonth()]} – ${e.getDate()} ${MESES_CORTOS[e.getMonth()]}`;
 }
 
+function extraStatusLabel(status: string | null | undefined): { label: string; color: string } {
+  const s = (status ?? '').toLowerCase();
+  if (s === 'aprobada') return { label: 'Aprobada', color: theme.success };
+  if (s === 'rechazada') return { label: 'Rechazada', color: theme.danger };
+  return { label: 'Pendiente', color: theme.warning };
+}
+
 export default function MisHorasScreen() {
+  const navigation = useNavigation<RootStackNavigation>();
+  const { employee } = useAuth();
   const [periods, setPeriods] = useState<QuincenaPeriod[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [report, setReport] = useState<HoursReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [extras, setExtras] = useState<OvertimeReport[]>([]);
+  const [loadingExtras, setLoadingExtras] = useState(true);
+
+  // Historial de extras reportadas (función mudada desde la tarjeta "Mis Horas Extras")
+  useEffect(() => {
+    let cancelled = false;
+    const loadExtras = async () => {
+      const employeeRowId = employee?.id ?? null;
+      const companyId = employee?.company_id ?? null;
+      if (!employeeRowId || !companyId) {
+        setLoadingExtras(false);
+        return;
+      }
+      const { data, error: err } = await supabase
+        .from('overtime_approvals')
+        .select('id, date, hours, status, hr_notes, is_paid')
+        .eq('employee_id', employeeRowId)
+        .eq('company_id', companyId)
+        .order('date', { ascending: false })
+        .limit(30);
+      if (cancelled) return;
+      if (!err) setExtras((data as OvertimeReport[]) ?? []);
+      setLoadingExtras(false);
+    };
+    void loadExtras();
+    return () => {
+      cancelled = true;
+    };
+  }, [employee?.id, employee?.company_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -397,6 +448,48 @@ export default function MisHorasScreen() {
           )}
         </>
       ) : null}
+
+      {/* ── Historial de horas extra reportadas (mudado de la ex-tarjeta "Mis Horas Extras") ── */}
+      <View style={styles.extrasSection}>
+        <View style={styles.extrasHeader}>
+          <Text style={styles.extrasTitle}>Mis reportes de horas extra</Text>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ReporteHorasExtras')}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Reportar horas extras"
+          >
+            <Text style={styles.extrasCta}>+ Reportar</Text>
+          </TouchableOpacity>
+        </View>
+        {loadingExtras ? (
+          <ActivityIndicator color={theme.primary} style={{ marginVertical: 16 }} />
+        ) : extras.length === 0 ? (
+          <Text style={styles.extrasEmpty}>
+            No has reportado horas extras aún. Si realizaste horas adicionales, envía un reporte
+            para que RRHH las revise.
+          </Text>
+        ) : (
+          extras.map((r) => {
+            const st = extraStatusLabel(r.status);
+            return (
+              <View key={r.id} style={styles.extraCard}>
+                <View style={styles.extraRow}>
+                  <Text style={styles.extraDate}>
+                    {fmtRange(r.date, r.date).split(' – ')[0]}
+                  </Text>
+                  <Text style={styles.extraHours}>{(Number(r.hours) || 0).toFixed(1)} h</Text>
+                </View>
+                {r.hr_notes ? <Text style={styles.extraNote}>RRHH: {r.hr_notes}</Text> : null}
+                <Text style={[styles.extraStatus, { color: st.color }]}>
+                  {st.label}
+                  {(r.status ?? '').toLowerCase() === 'aprobada' && r.is_paid ? ' · Pagada' : ''}
+                </Text>
+              </View>
+            );
+          })
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -497,4 +590,28 @@ const styles = StyleSheet.create({
   },
   warnText: { flex: 1, fontSize: 11, color: '#8A5A0B', lineHeight: 16 },
   footNote: { fontSize: 11, color: theme.textMuted, lineHeight: 16 },
+  extrasSection: { marginTop: 20 },
+  extrasHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  extrasTitle: { fontSize: 15, fontWeight: '800', color: theme.textPrimary },
+  extrasCta: { fontSize: 13, fontWeight: '700', color: theme.accent },
+  extrasEmpty: { fontSize: 12, color: theme.textSecondary, lineHeight: 18 },
+  extraCard: {
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  extraRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  extraDate: { fontSize: 13, fontWeight: '700', color: theme.textPrimary },
+  extraHours: { fontSize: 13, fontWeight: '800', color: theme.textPrimary },
+  extraNote: { fontSize: 11, color: theme.textSecondary, marginTop: 3 },
+  extraStatus: { fontSize: 11, fontWeight: '700', marginTop: 4 },
 });
