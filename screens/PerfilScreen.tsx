@@ -10,6 +10,8 @@ import {
   Alert,
   Platform,
   RefreshControl,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +20,7 @@ import type { TabCompositeNavigation } from '../types/navigation';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
+import { fetchJobTitleFunctionsBlock } from '../lib/api';
 
 // Paleta VIP Zone alineada al portal web QuantixHR
 const VIP = {
@@ -42,6 +45,42 @@ type PerfilState = {
   cargo: string;
 };
 
+/**
+ * Una función del puesto. MISMA fuente que la web (`components/mi-portal/MisResponsabilidadesWidget.tsx`):
+ * tabla `job_functions`, ordenada por `sort_order`.
+ */
+type JobFunctionRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  sort_order: number;
+};
+
+/** Normaliza una fila cruda de `job_functions` al shape tipado que consume la UI. */
+function normalizeJobFunction(raw: Record<string, unknown>, index: number): JobFunctionRow {
+  const titleRaw = raw.title ?? raw.name ?? '';
+  const descRaw = raw.description;
+  const sortRaw = Number(raw.sort_order);
+  return {
+    id: String(raw.id ?? index),
+    title: typeof titleRaw === 'string' ? titleRaw.trim() : String(titleRaw ?? '').trim(),
+    description:
+      descRaw != null && String(descRaw).trim() !== '' ? String(descRaw).trim() : null,
+    sort_order: Number.isFinite(sortRaw) ? sortRaw : index,
+  };
+}
+
+/** Palabras del excerpt del resumen bajo el título (paridad con la web). */
+const EXCERPT_MAX_WORDS = 15;
+
+/** Primeras `maxWords` palabras + "…" si hay más. */
+function truncateWords(text: string, maxWords: number): string {
+  const w = text.trim().split(/\s+/).filter(Boolean);
+  if (w.length === 0) return '';
+  if (w.length <= maxWords) return w.join(' ');
+  return `${w.slice(0, maxWords).join(' ')}…`;
+}
+
 function pickTrimmedNamePart(...candidates: (string | null | undefined)[]): string | null {
   for (const c of candidates) {
     if (typeof c !== 'string') continue;
@@ -64,7 +103,10 @@ export default function PerfilScreen() {
   /** true si `hire_date` viene de la columna contractual en `employees`; false si solo hay `created_at`. */
   const [hireDateFromContract, setHireDateFromContract] = useState(false);
   const [vacationDays, setVacationDays] = useState<number | null>(null);
-  const [funciones, setFunciones] = useState<Record<string, unknown>[]>([]);
+  const [funciones, setFunciones] = useState<JobFunctionRow[]>([]);
+  /** `job_titles.functions_description` — resumen del puesto (misma fuente que la web). */
+  const [functionsDescription, setFunctionsDescription] = useState('');
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
 
@@ -158,36 +200,38 @@ export default function PerfilScreen() {
 
         try {
           if (jobTitleId) {
+            const branchId = (employeeRecord?.branch_id as string | null) ?? null;
+            const bid = branchId != null && String(branchId).trim() !== '' ? String(branchId).trim() : null;
+
+            // Lista numerada de funciones: MISMA fuente y filtros que la web
+            // (job_functions por job_title_id + company_id + branch_id, orden por sort_order).
             let funcionesData: Record<string, unknown>[] | null = null;
             let funcionesError: { message?: string } | null = null;
 
-            // Hardening: si la tabla soporta scope por empresa, lo aplicamos.
-            if (companyIdRaw) {
-              const scopedRes = await supabase
-                .from('job_functions')
-                .select('*')
-                .eq('job_title_id', jobTitleId)
-                .eq('company_id', companyIdRaw);
+            let scopedQuery = supabase
+              .from('job_functions')
+              .select('id, title, description, sort_order')
+              .eq('job_title_id', jobTitleId);
+            if (companyIdRaw) scopedQuery = scopedQuery.eq('company_id', companyIdRaw);
+            if (bid) scopedQuery = scopedQuery.eq('branch_id', bid);
 
-              if (!scopedRes.error) {
-                funcionesData = (scopedRes.data ?? []) as Record<string, unknown>[];
-              } else {
-                // Fallback compatible si la columna company_id no existe en esta tabla.
-                const fallbackRes = await supabase
-                  .from('job_functions')
-                  .select('*')
-                  .eq('job_title_id', jobTitleId);
-                funcionesData = (fallbackRes.data ?? []) as Record<string, unknown>[];
-                funcionesError = fallbackRes.error;
-              }
+            const scopedRes = await scopedQuery.order('sort_order', { ascending: true });
+
+            if (!scopedRes.error) {
+              funcionesData = (scopedRes.data ?? []) as Record<string, unknown>[];
             } else {
+              // Fallback compatible si alguna columna de scope no existiera en esta BD.
               const fallbackRes = await supabase
                 .from('job_functions')
-                .select('*')
-                .eq('job_title_id', jobTitleId);
+                .select('id, title, description, sort_order')
+                .eq('job_title_id', jobTitleId)
+                .order('sort_order', { ascending: true });
               funcionesData = (fallbackRes.data ?? []) as Record<string, unknown>[];
               funcionesError = fallbackRes.error;
             }
+
+            // Resumen del puesto: job_titles.functions_description (misma fuente que la web).
+            const { functionsDescription: resumen } = await fetchJobTitleFunctionsBlock(jobTitleId);
 
             if (funcionesError) {
               console.error('Error en tabla job_functions:', funcionesError);
@@ -198,14 +242,19 @@ export default function PerfilScreen() {
                 );
               }
             } else if (isMounted) {
-              setFunciones(funcionesData ?? []);
+              setFunciones((funcionesData ?? []).map((row, i) => normalizeJobFunction(row, i)));
+              setFunctionsDescription(resumen ?? '');
             }
           } else if (isMounted) {
             setFunciones([]);
+            setFunctionsDescription('');
           }
         } catch (fnException) {
           console.error('Excepción al leer job_functions:', fnException);
-          if (isMounted) setFunciones([]);
+          if (isMounted) {
+            setFunciones([]);
+            setFunctionsDescription('');
+          }
           if (isMounted) {
             Alert.alert(
               'Error de Conexión',
@@ -234,6 +283,7 @@ export default function PerfilScreen() {
     session?.user?.id,
     employeeRecord?.id,
     employeeRecord?.company_id,
+    employeeRecord?.branch_id,
     employeeRecord?.job_title_id,
     employeeRecord?.hire_date,
     employeeRecord?.created_at,
@@ -334,21 +384,34 @@ export default function PerfilScreen() {
           </Text>
         </View>
 
-        {funciones.length > 0 && (
+        {(funciones.length > 0 || functionsDescription.trim().length > 0) && (
           <View style={styles.functionsCard}>
-            <Text style={styles.functionsTitle}>Mis Responsabilidades</Text>
+            <Text style={styles.functionsTitle}>Mis Funciones</Text>
+            <Text style={styles.functionsSubtitle}>Manual de Funciones</Text>
+            {functionsDescription.trim().length > 0 && (
+              <Text style={styles.functionsExcerpt}>
+                {truncateWords(functionsDescription, EXCERPT_MAX_WORDS)}
+              </Text>
+            )}
             {funciones.map((fn, index) => {
-              const key = String(fn.id ?? index);
-              const raw =
-                fn.name ?? fn.title ?? fn.description ?? 'Responsabilidad de puesto';
-              const text = typeof raw === 'string' ? raw : String(raw);
+              const text = fn.title || fn.description || 'Responsabilidad de puesto';
               return (
-                <View key={key} style={styles.functionRow}>
+                <View key={fn.id ?? index} style={styles.functionRow}>
                   <Text style={styles.functionBullet}>•</Text>
                   <Text style={styles.functionText}>{text}</Text>
                 </View>
               );
             })}
+            <TouchableOpacity
+              style={styles.functionsDetailButton}
+              onPress={() => setDetailModalOpen(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Ver funciones del puesto en detalle"
+            >
+              <Ionicons name="reader-outline" size={16} color={VIP.purpleDeep} />
+              <Text style={styles.functionsDetailButtonText}>Ver funciones</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -371,6 +434,76 @@ export default function PerfilScreen() {
           <Text style={styles.logoutText}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Detalle completo de funciones — mismo contenido que el modal de la web:
+          resumen del puesto + lista numerada con título y descripción de cada función. */}
+      <Modal
+        visible={detailModalOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDetailModalOpen(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setDetailModalOpen(false)}>
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalHeaderTexts}>
+                <Text style={styles.modalTitle}>Mis Funciones</Text>
+                <Text style={styles.modalSubtitle}>Manual de Funciones — detalle</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDetailModalOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar detalle de funciones"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={24} color={VIP.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {functionsDescription.trim().length > 0 && (
+                <View style={styles.resumenBox}>
+                  <Text style={styles.resumenLabel}>RESUMEN DEL PUESTO</Text>
+                  <Text style={styles.resumenText}>{functionsDescription.trim()}</Text>
+                </View>
+              )}
+
+              {funciones.length > 0 ? (
+                <>
+                  <Text style={styles.listLabel}>LISTA DE FUNCIONES (ORDEN)</Text>
+                  {funciones.map((fn, idx) => (
+                    <View key={fn.id ?? idx} style={styles.functionItem}>
+                      <Text style={styles.functionItemNum}>{idx + 1}. Función</Text>
+                      <Text style={styles.functionItemTitle}>{fn.title || 'Función'}</Text>
+                      {fn.description ? (
+                        <Text style={styles.functionItemDesc}>{fn.description}</Text>
+                      ) : (
+                        <Text style={styles.functionItemNoDesc}>Sin descripción detallada.</Text>
+                      )}
+                    </View>
+                  ))}
+                </>
+              ) : (
+                <Text style={styles.functionItemNoDesc}>
+                  Aún no hay una lista detallada de funciones por ítem; el resumen de tu puesto aparece arriba.
+                </Text>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setDetailModalOpen(false)}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.modalCloseButtonText}>Cerrar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
@@ -548,7 +681,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#0f172a',
+    marginBottom: 2,
+  },
+  functionsSubtitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: VIP.textMuted,
     marginBottom: 8,
+  },
+  functionsExcerpt: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#475569',
+    marginBottom: 10,
+  },
+  functionsDetailButton: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: VIP.purpleDeep,
+    borderRadius: 12,
+    paddingVertical: 11,
+    backgroundColor: '#EEF2FF',
+  },
+  functionsDetailButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: VIP.purpleDeep,
   },
   functionRow: {
     flexDirection: 'row',
@@ -565,6 +727,125 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: '#4b5563',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 20,
+    maxHeight: '88%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingBottom: 12,
+    marginBottom: 12,
+  },
+  modalHeaderTexts: {
+    flex: 1,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  modalSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '600',
+    color: VIP.textMuted,
+  },
+  modalScroll: {
+    flexGrow: 0,
+  },
+  modalScrollContent: {
+    paddingBottom: 8,
+  },
+  resumenBox: {
+    borderWidth: 2,
+    borderColor: 'rgba(60, 52, 137, 0.35)',
+    backgroundColor: 'rgba(60, 52, 137, 0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 18,
+  },
+  resumenLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    color: VIP.purpleDeep,
+  },
+  resumenText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '500',
+    color: '#1E293B',
+  },
+  listLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    color: VIP.textMuted,
+    marginBottom: 10,
+  },
+  functionItem: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  functionItemNum: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: VIP.textMuted,
+  },
+  functionItemTitle: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  functionItemDesc: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#475569',
+  },
+  functionItemNoDesc: {
+    marginTop: 6,
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: VIP.textMuted,
+  },
+  modalCloseButton: {
+    marginTop: 12,
+    backgroundColor: VIP.purpleDeep,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalCloseButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });
 
