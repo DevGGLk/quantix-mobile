@@ -113,7 +113,7 @@ export default function PerfilScreen() {
         }
 
         if (empRecordId) {
-          // `select('*')` para columnas no mapeadas en contexto (p. ej. vacaciones).
+          // `select('*')` para columnas no mapeadas en contexto (fecha de ingreso).
           const { data: laborRow, error: laborErr } = await supabase
             .from('employees')
             .select('*')
@@ -126,15 +126,23 @@ export default function PerfilScreen() {
               hireDateIso = String(lr.hire_date).slice(0, 10);
               hireIsContract = true;
             }
-            const vd = lr.vacation_days_balance;
-            if (typeof vd === 'number' && Number.isFinite(vd)) {
-              vacationAvailable = vd;
-            } else if (vd != null && vd !== '') {
-              const n = Number(vd);
-              if (Number.isFinite(n)) vacationAvailable = n;
-            }
           } else if (laborErr) {
             console.warn('Perfil employees (expediente):', laborErr.message);
+          }
+
+          // Vacaciones: SIEMPRE del ledger (leave_balances vía RPC), nunca de
+          // employees.vacation_days_balance (columna legacy deprecada — mostraba
+          // saldos viejos desincronizados del acumulado legal).
+          const { data: vacData, error: vacErr } = await supabase.rpc(
+            'get_employee_vacation_balance',
+            { p_employee_id: empRecordId }
+          );
+          if (!vacErr && vacData) {
+            const vb = (vacData as { vacation_balance?: number | string | null }).vacation_balance;
+            const n = Number(vb);
+            if (Number.isFinite(n)) vacationAvailable = n;
+          } else if (vacErr) {
+            console.warn('Perfil vacaciones (ledger):', vacErr.message);
           }
         }
 
