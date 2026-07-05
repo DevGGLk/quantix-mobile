@@ -134,7 +134,11 @@ function MainTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Inicio' }} />
       <Tab.Screen name="Turnos" component={TurnosScreen} options={{ title: 'Turnos' }} />
-      <Tab.Screen name="Jay" component={AsistenteScreen} options={{ title: 'Jay' }} />
+      <Tab.Screen
+        name="Jay"
+        component={AsistenteScreen}
+        options={{ title: 'Jay', tabBarHideOnKeyboard: true }}
+      />
       <Tab.Screen
         name="Servicios"
         component={ServiciosScreen}
