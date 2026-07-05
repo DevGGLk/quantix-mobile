@@ -51,6 +51,7 @@ export type ActiveLoanRouteParam = {
 export type MainTabParamList = {
   Home: undefined;
   Turnos: undefined;
+  Jay: undefined;
   Servicios: undefined;
   Perfil: undefined;
 };

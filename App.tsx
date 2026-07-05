@@ -21,6 +21,7 @@ import NuevaSolicitudScreen from './screens/NuevaSolicitudScreen';
 import ReportarScreen from './screens/ReportarScreen';
 import AcademiaScreen from './screens/AcademiaScreen';
 import PerfilScreen from './screens/PerfilScreen';
+import AsistenteScreen from './screens/AsistenteScreen';
 import TurnosScreen from './screens/TurnosScreen';
 import ChecklistsScreen from './screens/ChecklistsScreen';
 import ResolverChecklistScreen from './screens/ResolverChecklistScreen';
@@ -56,6 +57,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const TAB_ICONS = {
   Home: { active: 'home', inactive: 'home-outline' },
   Turnos: { active: 'calendar', inactive: 'calendar-outline' },
+  Jay: { active: 'sparkles', inactive: 'sparkles-outline' },
   Servicios: { active: 'apps', inactive: 'apps-outline' },
   Perfil: { active: 'person', inactive: 'person-outline' },
 } as const;
@@ -132,6 +134,7 @@ function MainTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Inicio' }} />
       <Tab.Screen name="Turnos" component={TurnosScreen} options={{ title: 'Turnos' }} />
+      <Tab.Screen name="Jay" component={AsistenteScreen} options={{ title: 'Jay' }} />
       <Tab.Screen
         name="Servicios"
         component={ServiciosScreen}
