@@ -95,6 +95,30 @@ function AuthRecordsBannerBar() {
 }
 
 function MainTabs() {
+  const { employee } = useAuth();
+  // Toggle por empresa (company_settings.enable_ai_assistant). Default true:
+  // no ocultamos el tab prematuramente; solo si la empresa lo apagó explícitamente.
+  const [aiAssistantEnabled, setAiAssistantEnabled] = useState(true);
+
+  useEffect(() => {
+    const cid = employee?.company_id ?? null;
+    if (!cid) return;
+    let active = true;
+    void supabase
+      .from('company_settings')
+      .select('enable_ai_assistant')
+      .eq('company_id', cid)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!active) return;
+        const flag = (data as { enable_ai_assistant?: boolean | null } | null)?.enable_ai_assistant;
+        setAiAssistantEnabled(flag !== false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [employee?.company_id]);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -134,11 +158,13 @@ function MainTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Inicio' }} />
       <Tab.Screen name="Turnos" component={TurnosScreen} options={{ title: 'Turnos' }} />
-      <Tab.Screen
-        name="Jay"
-        component={AsistenteScreen}
-        options={{ title: 'Jay', tabBarHideOnKeyboard: true }}
-      />
+      {aiAssistantEnabled && (
+        <Tab.Screen
+          name="Jay"
+          component={AsistenteScreen}
+          options={{ title: 'Jay', tabBarHideOnKeyboard: true }}
+        />
+      )}
       <Tab.Screen
         name="Servicios"
         component={ServiciosScreen}

@@ -71,7 +71,9 @@ export async function sendJayChat(history: JayChatMessage[]): Promise<JayChatRes
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ messages }),
+      // surface: 'mobile' → el backend adapta el prompt a la navegación de la app
+      // (pestañas, sin "portal"/rutas web/"botón Ayuda").
+      body: JSON.stringify({ messages, surface: 'mobile' }),
     });
 
     const text = await res.text();
