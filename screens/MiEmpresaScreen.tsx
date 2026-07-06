@@ -33,17 +33,39 @@ type EmployeeRow = {
   last_name: string | null;
   avatar_url: string | null;
   job_title_id: string | null;
+  position_id: string | null;
   reports_to: string | null;
   manager_id: string | null;
   job_titles?: { name?: string | null } | null;
 };
 
+type OrgUnitRow = {
+  id: string;
+  name: string | null;
+  parent_unit_id: string | null;
+  is_active: boolean | null;
+};
+
+type PositionRow = {
+  id: string;
+  org_unit_id: string | null;
+  job_title_id: string | null;
+  reports_to_position_id: string | null;
+  title_label: string;
+};
+
+type OrgKind = 'org_unit' | 'position' | 'employee';
+
 type OrgNode = {
   id: string;
+  kind: OrgKind;
   name: string;
   title: string;
   avatarUrl: string | null;
-  managerId: string | null;
+  /** Solo para posiciones: true si ninguna persona la ocupa. */
+  vacant?: boolean;
+  /** Fallback supervisión (árbol legacy por reports_to/manager_id). */
+  managerId?: string | null;
   children: OrgNode[];
 };
 
@@ -76,7 +98,7 @@ function embeddedJobTitleName(raw: unknown): string | null {
 async function fetchEmployeesWithResolvedJobTitles(companyId: string): Promise<EmployeeRow[]> {
   const empRes = await supabase
     .from('employees')
-    .select('id, first_name, last_name, avatar_url, job_title_id, reports_to, manager_id')
+    .select('id, first_name, last_name, avatar_url, job_title_id, position_id, reports_to, manager_id')
     .eq('company_id', companyId)
     .eq('employment_status', 'active')
     .order('last_name', { ascending: true });
@@ -150,6 +172,7 @@ function buildOrgTree(rows: EmployeeRow[]): OrgNode[] {
 
     nodesById.set(selfId, {
       id: selfId,
+      kind: 'employee',
       name: fullName,
       title: jobTitle,
       avatarUrl: r.avatar_url ?? null,
@@ -176,11 +199,173 @@ function buildOrgTree(rows: EmployeeRow[]): OrgNode[] {
   return roots;
 }
 
+/**
+ * Carga la estructura organizativa (departamentos + plazas) — MISMA fuente que la web
+ * (`org_units` + `positions`, título de plaza desde `job_titles.name`). Devuelve listas vacías
+ * si la empresa no configuró estructura (entonces se usa el árbol por supervisión).
+ */
+async function fetchOrgStructure(
+  companyId: string
+): Promise<{ orgUnits: OrgUnitRow[]; positions: PositionRow[] }> {
+  const [ouRes, posRes] = await Promise.all([
+    supabase.from('org_units').select('id, name, parent_unit_id, is_active').eq('company_id', companyId),
+    supabase.from('positions').select('id, org_unit_id, job_title_id, reports_to_position_id').eq('company_id', companyId),
+  ]);
+
+  // Degradación defensiva: si RLS/esquema fallan, devolvemos estructura vacía
+  // (la pantalla cae al árbol por supervisión) sin romper el ADN ni la lista.
+  if (ouRes.error || posRes.error) {
+    console.warn('MiEmpresa org structure:', ouRes.error?.message ?? posRes.error?.message);
+    return { orgUnits: [], positions: [] };
+  }
+
+  const orgUnits = ((ouRes.data ?? []) as OrgUnitRow[]).filter((u) => u.is_active !== false);
+  const rawPositions = (posRes.data ?? []) as Omit<PositionRow, 'title_label'>[];
+
+  // Título de cada plaza: job_titles.name vía job_title_id.
+  const jobTitleIds = [...new Set(rawPositions.map((p) => p.job_title_id).filter(Boolean) as string[])];
+  const titleById = new Map<string, string>();
+  if (jobTitleIds.length > 0) {
+    const jtRes = await supabase.from('job_titles').select('id, name').in('id', jobTitleIds);
+    if (!jtRes.error && jtRes.data) {
+      for (const t of jtRes.data as { id: string; name?: string | null }[]) {
+        const nm = normalizeText(t.name);
+        if (nm) titleById.set(String(t.id), nm);
+      }
+    }
+  }
+
+  const positions: PositionRow[] = rawPositions.map((p) => ({
+    ...p,
+    title_label: (p.job_title_id ? titleById.get(String(p.job_title_id)) : '') || 'Plaza',
+  }));
+
+  return { orgUnits, positions };
+}
+
+/**
+ * Organigrama estructural (departamentos → plazas → personas), paridad con la web
+ * (`buildStructuralOrgNodes`). Las personas sin plaza asignada van a un grupo aparte.
+ */
+function buildStructuralTree(
+  orgUnits: OrgUnitRow[],
+  positions: PositionRow[],
+  employees: EmployeeRow[]
+): OrgNode[] {
+  const ouNodeById = new Map<string, OrgNode>();
+  const posNodeById = new Map<string, OrgNode>();
+
+  for (const u of orgUnits) {
+    ouNodeById.set(u.id, {
+      id: `ou:${u.id}`,
+      kind: 'org_unit',
+      name: normalizeText(u.name) || 'Departamento',
+      title: 'Departamento',
+      avatarUrl: null,
+      children: [],
+    });
+  }
+
+  for (const p of positions) {
+    posNodeById.set(p.id, {
+      id: `po:${p.id}`,
+      kind: 'position',
+      name: p.title_label,
+      title: 'Puesto / plaza',
+      avatarUrl: null,
+      vacant: true,
+      children: [],
+    });
+  }
+
+  // Personas: bajo su plaza (position_id) si existe; marcan la plaza como ocupada.
+  const unassigned: OrgNode[] = [];
+  for (const r of employees) {
+    const fullName = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || 'Empleado';
+    const empNode: OrgNode = {
+      id: r.id,
+      kind: 'employee',
+      name: fullName,
+      title: normalizeText(r.job_titles?.name) || 'Sin cargo asignado',
+      avatarUrl: r.avatar_url ?? null,
+      children: [],
+    };
+    const pid = normalizeText(r.position_id);
+    const posNode = pid ? posNodeById.get(pid) : undefined;
+    if (posNode) {
+      posNode.vacant = false;
+      posNode.children.push(empNode);
+    } else {
+      unassigned.push(empNode);
+    }
+  }
+
+  // Plazas: bajo su plaza superior (reports_to_position_id) o su departamento.
+  for (const p of positions) {
+    const node = posNodeById.get(p.id)!;
+    const rp = normalizeText(p.reports_to_position_id);
+    const parentPos = rp ? posNodeById.get(rp) : undefined;
+    const ou = normalizeText(p.org_unit_id);
+    const parentOu = ou ? ouNodeById.get(ou) : undefined;
+    if (parentPos) parentPos.children.push(node);
+    else if (parentOu) parentOu.children.push(node);
+    // huérfana (sin depto válido): la colgamos como raíz más abajo
+  }
+
+  // Departamentos: bajo su padre (parent_unit_id) o raíz.
+  const roots: OrgNode[] = [];
+  for (const u of orgUnits) {
+    const node = ouNodeById.get(u.id)!;
+    const parent = normalizeText(u.parent_unit_id);
+    const parentNode = parent ? ouNodeById.get(parent) : undefined;
+    if (parentNode) parentNode.children.push(node);
+    else roots.push(node);
+  }
+
+  // Plazas huérfanas (org_unit inexistente y sin plaza superior) → raíz.
+  for (const p of positions) {
+    const node = posNodeById.get(p.id)!;
+    const rp = normalizeText(p.reports_to_position_id);
+    const ou = normalizeText(p.org_unit_id);
+    const hasParent = (rp && posNodeById.has(rp)) || (ou && ouNodeById.has(ou));
+    if (!hasParent) roots.push(node);
+  }
+
+  if (unassigned.length > 0) {
+    unassigned.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    roots.push({
+      id: 'unassigned',
+      kind: 'org_unit',
+      name: 'Sin plaza asignada',
+      title: 'Colaboradores sin puesto estructural',
+      avatarUrl: null,
+      children: unassigned,
+    });
+  }
+
+  const sortTree = (list: OrgNode[]) => {
+    list.sort((a, b) => {
+      // orden: departamentos/plazas primero por nombre, luego empleados
+      if (a.kind !== b.kind) {
+        const rank = (k: OrgKind) => (k === 'employee' ? 1 : 0);
+        if (rank(a.kind) !== rank(b.kind)) return rank(a.kind) - rank(b.kind);
+      }
+      return a.name.localeCompare(b.name, 'es');
+    });
+    for (const n of list) sortTree(n.children);
+  };
+  sortTree(roots);
+
+  return roots;
+}
+
 export default function MiEmpresaScreen() {
   const { employee } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [company, setCompany] = useState<Company | null>(null);
   const [employeesFlat, setEmployeesFlat] = useState<EmployeeRow[]>([]);
+  const [orgUnits, setOrgUnits] = useState<OrgUnitRow[]>([]);
+  const [positions, setPositions] = useState<PositionRow[]>([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -195,6 +380,8 @@ export default function MiEmpresaScreen() {
           if (isMounted) {
             setCompany(null);
             setEmployeesFlat([]);
+            setOrgUnits([]);
+            setPositions([]);
           }
           return;
         }
@@ -215,10 +402,11 @@ export default function MiEmpresaScreen() {
                 .maybeSingle()
             : Promise.resolve({ data: null, error: null as null });
 
-        const [companyRes, branchRes, employeesFlatResolved] = await Promise.all([
+        const [companyRes, branchRes, employeesFlatResolved, orgStructure] = await Promise.all([
           companyResPromise,
           branchResPromise,
           fetchEmployeesWithResolvedJobTitles(companyId),
+          fetchOrgStructure(companyId),
         ]);
 
         if (companyRes.error) throw companyRes.error;
@@ -254,11 +442,15 @@ export default function MiEmpresaScreen() {
         });
 
         setEmployeesFlat(employeesFlatResolved);
+        setOrgUnits(orgStructure.orgUnits);
+        setPositions(orgStructure.positions);
       } catch (e) {
         console.error('Error cargando MiEmpresa:', e);
         if (isMounted) {
           setCompany(null);
           setEmployeesFlat([]);
+          setOrgUnits([]);
+          setPositions([]);
           Alert.alert(
             'Error de Conexión',
             'No pudimos cargar esta información. Por favor, revisa tu internet o intenta de nuevo más tarde.'
@@ -287,7 +479,15 @@ export default function MiEmpresaScreen() {
     ];
   }, [company?.mission, company?.vision, company?.corporate_values]);
 
-  const orgTree = useMemo(() => buildOrgTree(employeesFlat), [employeesFlat]);
+  /** Estructural (departamentos + plazas + personas) si la empresa la configuró; si no, supervisión. */
+  const hasStructure = orgUnits.length > 0 || positions.length > 0;
+  const orgTree = useMemo(
+    () =>
+      hasStructure
+        ? buildStructuralTree(orgUnits, positions, employeesFlat)
+        : buildOrgTree(employeesFlat),
+    [hasStructure, orgUnits, positions, employeesFlat]
+  );
 
   if (isLoading) {
     return (
@@ -334,14 +534,16 @@ export default function MiEmpresaScreen() {
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Estructura Organizacional</Text>
-          <Text style={styles.sectionHint}>Jerarquía por supervisión</Text>
+          <Text style={styles.sectionHint}>
+            {hasStructure ? 'Departamentos, plazas y personas' : 'Jerarquía por supervisión'}
+          </Text>
         </View>
 
-        {employeesFlat.length === 0 ? (
+        {orgTree.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Aún no hay datos registrados</Text>
             <Text style={styles.emptyText}>
-              No hay empleados activos asociados a esta empresa.
+              No hay estructura organizativa ni empleados activos asociados a esta empresa.
             </Text>
           </View>
         ) : (
@@ -357,10 +559,59 @@ export default function MiEmpresaScreen() {
 }
 
 function OrgNodeRow({ node, level }: { node: OrgNode; level: number }) {
+  const indent = 12 + level * 16;
+
+  if (node.kind === 'org_unit') {
+    return (
+      <View>
+        <View style={[styles.orgRow, styles.deptRow, { paddingLeft: indent }]}>
+          <View style={styles.deptBar} />
+          <View style={styles.orgTextWrap}>
+            <Text style={styles.deptName} numberOfLines={1}>
+              {node.name.toUpperCase()}
+            </Text>
+            <Text style={styles.orgTitle} numberOfLines={1}>
+              {node.title}
+            </Text>
+          </View>
+        </View>
+        {node.children.map((child) => (
+          <OrgNodeRow key={child.id} node={child} level={level + 1} />
+        ))}
+      </View>
+    );
+  }
+
+  if (node.kind === 'position') {
+    return (
+      <View>
+        <View style={[styles.orgRow, { paddingLeft: indent }]}>
+          <View style={styles.posDot} />
+          <View style={styles.orgTextWrap}>
+            <Text style={styles.posName} numberOfLines={1}>
+              {node.name}
+            </Text>
+            <Text style={styles.orgTitle} numberOfLines={1}>
+              {node.title}
+            </Text>
+          </View>
+          {node.vacant && (
+            <View style={styles.vacantPill}>
+              <Text style={styles.vacantPillText}>Vacante</Text>
+            </View>
+          )}
+        </View>
+        {node.children.map((child) => (
+          <OrgNodeRow key={child.id} node={child} level={level + 1} />
+        ))}
+      </View>
+    );
+  }
+
   const initials = node.name.trim().slice(0, 1).toUpperCase() || 'E';
   return (
     <View>
-      <View style={[styles.orgRow, { paddingLeft: 12 + level * 16 }]}>
+      <View style={[styles.orgRow, { paddingLeft: indent }]}>
         {node.avatarUrl ? (
           <Image source={{ uri: node.avatarUrl }} style={styles.orgAvatar} />
         ) : (
@@ -542,6 +793,49 @@ const styles = StyleSheet.create({
     paddingRight: 12,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
+  },
+  deptRow: {
+    backgroundColor: theme.subtleBackground,
+  },
+  deptBar: {
+    width: 4,
+    height: 30,
+    borderRadius: 2,
+    backgroundColor: theme.primary,
+  },
+  deptName: {
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    color: theme.primary,
+  },
+  posDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginLeft: 12,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: theme.accent,
+    backgroundColor: 'transparent',
+  },
+  posName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  vacantPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: theme.storeBackground,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  vacantPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.textMuted,
   },
   orgAvatar: {
     width: 34,
