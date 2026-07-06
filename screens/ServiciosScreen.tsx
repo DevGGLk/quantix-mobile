@@ -14,6 +14,7 @@ type CompanySettings = {
   enable_checklists?: boolean;
   enable_loans?: boolean;
   enable_hours_report?: boolean;
+  enable_academia?: boolean;
   [key: string]: unknown;
 } | null;
 
@@ -98,14 +99,16 @@ export default function ServiciosScreen() {
           <Text style={styles.cardLabel}>Nueva Solicitud</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.85}
-          onPress={() => navigation.navigate('Academia')}
-        >
-          <Ionicons name="school-outline" size={32} color="#10b981" />
-          <Text style={styles.cardLabel}>La Academia</Text>
-        </TouchableOpacity>
+        {companySettings?.enable_academia !== false && (
+          <TouchableOpacity
+            style={styles.card}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Academia')}
+          >
+            <Ionicons name="school-outline" size={32} color="#10b981" />
+            <Text style={styles.cardLabel}>La Academia</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={styles.card}
