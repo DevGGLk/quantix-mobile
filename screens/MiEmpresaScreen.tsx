@@ -23,6 +23,8 @@ type Company = {
 };
 
 type BranchAdnRow = {
+  name: string | null;
+  logo_url: string | null;
   mission: string | null;
   vision: string | null;
   corporate_values: string | null;
@@ -95,16 +97,28 @@ function embeddedJobTitleName(raw: unknown): string | null {
 }
 
 /**
- * Carga empleados de la empresa y resuelve el nombre del cargo: contrato activo (`employment_contracts` + `job_titles`)
+ * Carga empleados y resuelve el nombre del cargo: contrato activo (`employment_contracts` + `job_titles`)
  * y, si no hay contrato con título, `employees.job_title_id` → `job_titles`.
+ *
+ * Alcance (paridad con la web `/empresa`): si se pasa `branchId`, se acota a la sucursal del
+ * colaborador MÁS los líderes corporativos (`is_corporate_leader = true`), para que cada quien vea
+ * su sucursal y a la dirección transversal. Sin `branchId` (caso borde: expediente sin sucursal),
+ * se carga toda la razón social.
  */
-async function fetchEmployeesWithResolvedJobTitles(companyId: string): Promise<EmployeeRow[]> {
-  const empRes = await supabase
+async function fetchEmployeesWithResolvedJobTitles(
+  companyId: string,
+  branchId: string | null
+): Promise<EmployeeRow[]> {
+  let empQuery = supabase
     .from('employees')
     .select('id, first_name, last_name, avatar_path, avatar_updated_at, job_title_id, position_id, reports_to, manager_id')
     .eq('company_id', companyId)
-    .eq('employment_status', 'active')
-    .order('last_name', { ascending: true });
+    .eq('employment_status', 'active');
+  if (branchId) {
+    // sucursal del colaborador OR líder corporativo (transversal al holding)
+    empQuery = empQuery.or(`branch_id.eq.${branchId},is_corporate_leader.eq.true`);
+  }
+  const empRes = await empQuery.order('last_name', { ascending: true });
 
   if (empRes.error) throw empRes.error;
 
@@ -399,7 +413,7 @@ export default function MiEmpresaScreen() {
           branchId != null
             ? supabase
                 .from('branches')
-                .select('mission, vision, corporate_values')
+                .select('name, logo_url, mission, vision, corporate_values')
                 .eq('id', branchId)
                 .eq('company_id', companyId)
                 .maybeSingle()
@@ -408,7 +422,7 @@ export default function MiEmpresaScreen() {
         const [companyRes, branchRes, employeesFlatResolved, orgStructure] = await Promise.all([
           companyResPromise,
           branchResPromise,
-          fetchEmployeesWithResolvedJobTitles(companyId),
+          fetchEmployeesWithResolvedJobTitles(companyId, branchId),
           fetchOrgStructure(companyId),
         ]);
 
@@ -436,9 +450,13 @@ export default function MiEmpresaScreen() {
           settings.values
         );
 
+        // Identidad mostrada: PRIORIDAD sucursal (nombre + logo), con fallback a la razón social.
+        // Un colaborador de Chefellas ve el logo/nombre de Chefellas; uno de La Central, el de La Central.
+        const companyName = typeof row?.name === 'string' ? row.name : null;
+        const companyLogo = typeof row?.logo_url === 'string' ? row.logo_url : null;
         setCompany({
-          name: typeof row?.name === 'string' ? row.name : null,
-          logo_url: typeof row?.logo_url === 'string' ? row.logo_url : null,
+          name: coalesceAdnField(branchRow?.name, companyName),
+          logo_url: coalesceAdnField(branchRow?.logo_url, companyLogo),
           mission,
           vision,
           corporate_values,
