@@ -12,6 +12,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { getEmployeePhotoPublicUrl } from '../lib/employeePhoto';
 
 type Company = {
   name: string | null;
@@ -31,7 +32,9 @@ type EmployeeRow = {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  avatar_url: string | null;
+  /** Ruta del avatar en el bucket público `employee_photos` (fuente de verdad; ya no existe `avatar_url`). */
+  avatar_path: string | null;
+  avatar_updated_at: string | null;
   job_title_id: string | null;
   position_id: string | null;
   reports_to: string | null;
@@ -98,7 +101,7 @@ function embeddedJobTitleName(raw: unknown): string | null {
 async function fetchEmployeesWithResolvedJobTitles(companyId: string): Promise<EmployeeRow[]> {
   const empRes = await supabase
     .from('employees')
-    .select('id, first_name, last_name, avatar_url, job_title_id, position_id, reports_to, manager_id')
+    .select('id, first_name, last_name, avatar_path, avatar_updated_at, job_title_id, position_id, reports_to, manager_id')
     .eq('company_id', companyId)
     .eq('employment_status', 'active')
     .order('last_name', { ascending: true });
@@ -175,7 +178,7 @@ function buildOrgTree(rows: EmployeeRow[]): OrgNode[] {
       kind: 'employee',
       name: fullName,
       title: jobTitle,
-      avatarUrl: r.avatar_url ?? null,
+      avatarUrl: getEmployeePhotoPublicUrl(r.avatar_path, r.avatar_updated_at),
       managerId,
       children: [],
     });
@@ -287,7 +290,7 @@ function buildStructuralTree(
       kind: 'employee',
       name: fullName,
       title: normalizeText(r.job_titles?.name) || 'Sin cargo asignado',
-      avatarUrl: r.avatar_url ?? null,
+      avatarUrl: getEmployeePhotoPublicUrl(r.avatar_path, r.avatar_updated_at),
       children: [],
     };
     const pid = normalizeText(r.position_id);

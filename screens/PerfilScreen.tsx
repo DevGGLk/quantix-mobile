@@ -21,6 +21,7 @@ import type { TabCompositeNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { fetchJobTitleFunctionsBlock } from '../lib/api';
+import { getEmployeePhotoPublicUrl } from '../lib/employeePhoto';
 
 // Paleta VIP Zone alineada al portal web QuantixHR
 const VIP = {
@@ -132,6 +133,9 @@ export default function PerfilScreen() {
         const nombreLast = pickTrimmedNamePart(authProfile?.last_name, employeeRecord?.last_name);
         const nombre =
           [nombreFirst, nombreLast].filter(Boolean).join(' ').trim() || 'Empleado';
+        // Cargo: fuente de verdad es `job_titles.name` (p. ej. "CEO"), igual que la web `/perfil`.
+        // `authProfile.role` (admin/hr/ceo) es solo el rol de permisos y NO el puesto; se usa como
+        // fallback si el expediente no tiene cargo asignado. El nombre real se resuelve más abajo.
         const cargo = String(authProfile?.role ?? 'Colaborador') || 'Colaborador';
         const companyIdRaw = employeeRecord?.company_id ?? null;
 
@@ -141,6 +145,9 @@ export default function PerfilScreen() {
         let hireDateIso: string | null = null;
         let hireIsContract = false;
         let vacationAvailable: number | null = null;
+        // Avatar: foto de perfil desde `employees.avatar_path` (bucket público `employee_photos`),
+        // misma fuente que la web. Se resuelve del expediente completo más abajo.
+        let avatarUrlResolved: string | null = null;
 
         // Fecha de ingreso: `employeeRecord` ya trae `hire_date` / `created_at` desde AuthContext.
         if (
@@ -168,6 +175,10 @@ export default function PerfilScreen() {
               hireDateIso = String(lr.hire_date).slice(0, 10);
               hireIsContract = true;
             }
+            avatarUrlResolved = getEmployeePhotoPublicUrl(
+              lr.avatar_path as string | null | undefined,
+              lr.avatar_updated_at as string | null | undefined
+            );
           } else if (laborErr) {
             console.warn('Perfil employees (expediente):', laborErr.message);
           }
@@ -194,9 +205,8 @@ export default function PerfilScreen() {
           setVacationDays(vacationAvailable);
         }
         setPerfil({ nombre, cargo });
-        // Enterprise: avatar ya no vive en employees; si sigue existiendo en profiles,
-        // podemos migrarlo más adelante. Por ahora mantenemos null para evitar acoplamiento.
-        setAvatarUrl(null);
+        // Foto de perfil desde `employees.avatar_path` (bucket público + CDN). null → iniciales/placeholder.
+        setAvatarUrl(avatarUrlResolved);
 
         try {
           if (jobTitleId) {
@@ -230,8 +240,19 @@ export default function PerfilScreen() {
               funcionesError = fallbackRes.error;
             }
 
-            // Resumen del puesto: job_titles.functions_description (misma fuente que la web).
-            const { functionsDescription: resumen } = await fetchJobTitleFunctionsBlock(jobTitleId);
+            // Resumen del puesto + nombre del cargo: job_titles (misma fuente que la web).
+            const { functionsDescription: resumen, titleLabel } =
+              await fetchJobTitleFunctionsBlock(jobTitleId);
+
+            // Cargo real desde job_titles.name (p. ej. "CEO"). 'Tu cargo' es el placeholder que
+            // devuelve el helper cuando el registro no tiene nombre → conservamos el fallback (rol).
+            const resolvedCargo =
+              typeof titleLabel === 'string' && titleLabel.trim() && titleLabel.trim() !== 'Tu cargo'
+                ? titleLabel.trim()
+                : null;
+            if (isMounted && resolvedCargo) {
+              setPerfil((prev) => ({ ...prev, cargo: resolvedCargo }));
+            }
 
             if (funcionesError) {
               console.error('Error en tabla job_functions:', funcionesError);
