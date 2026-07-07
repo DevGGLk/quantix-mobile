@@ -436,9 +436,12 @@ export async function fetchJobTitleFunctionsBlock(jobTitleId: string): Promise<{
     return { titleLabel: '', functionsDescription: null, errorMessage: 'jobTitleId vacío' };
   }
 
+  // Solo columnas que existen en `job_titles` (name, functions_description).
+  // Incluir `title` (columna inexistente) hacía que PostgREST rechazara TODO el
+  // query → el cargo real no se resolvía y el resumen de funciones quedaba vacío.
   const { data, error } = await supabase
     .from('job_titles')
-    .select('functions_description, name, title')
+    .select('functions_description, name')
     .eq('id', trimmed)
     .maybeSingle();
 
@@ -448,7 +451,7 @@ export async function fetchJobTitleFunctionsBlock(jobTitleId: string): Promise<{
   }
 
   const row = (data ?? null) as Record<string, unknown> | null;
-  const name = String(row?.name ?? row?.title ?? '').trim();
+  const name = String(row?.name ?? '').trim();
   const descRaw = row?.functions_description;
   const functionsDescription =
     descRaw != null && String(descRaw).trim() !== '' ? String(descRaw).trim() : null;
