@@ -397,12 +397,17 @@ export default function PerfilScreen() {
               <Text style={styles.laborHint}> (alta en el sistema)</Text>
             ) : null}
           </Text>
-          <Text style={styles.laborLabel}>
-            Días de vacaciones disponibles:{' '}
-            <Text style={styles.laborValue}>
-              {typeof vacationDays === 'number' ? vacationDays : '—'}
+          <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('Vacaciones')}>
+            <Text style={styles.laborLabel}>
+              Días de vacaciones disponibles:{' '}
+              <Text style={styles.laborValue}>
+                {typeof vacationDays === 'number' ? vacationDays : '—'}
+              </Text>
             </Text>
-          </Text>
+            <Text style={{ color: '#3C3489', fontSize: 13, fontWeight: '600', marginTop: 4 }}>
+              Ver detalle de vacaciones →
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {(funciones.length > 0 || functionsDescription.trim().length > 0) && (

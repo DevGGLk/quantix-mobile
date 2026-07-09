@@ -69,6 +69,7 @@ export type RootStackParamList = {
   MiDisciplina: undefined;
   Sugerencias: undefined;
   MisHoras: undefined;
+  Vacaciones: undefined;
   AdminDashboard: undefined;
   MapaEmpleados: undefined;
   ReporteHorasExtras: undefined;

@@ -23,6 +23,7 @@ import AcademiaScreen from './screens/AcademiaScreen';
 import PerfilScreen from './screens/PerfilScreen';
 import AsistenteScreen from './screens/AsistenteScreen';
 import TurnosScreen from './screens/TurnosScreen';
+import VacacionesScreen from './screens/VacacionesScreen';
 import ChecklistsScreen from './screens/ChecklistsScreen';
 import ResolverChecklistScreen from './screens/ResolverChecklistScreen';
 import PlanillaScreen from './screens/PlanillaScreen';
@@ -369,6 +370,11 @@ function AppInner() {
               name="MisHoras"
               component={MisHorasScreen}
               options={{ title: 'Mis Horas' }}
+            />
+            <Stack.Screen
+              name="Vacaciones"
+              component={VacacionesScreen}
+              options={{ title: 'Mis Vacaciones' }}
             />
             <Stack.Screen
               name="AdminDashboard"
