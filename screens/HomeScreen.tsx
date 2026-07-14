@@ -9,11 +9,14 @@ import {
   Alert,
   ScrollView,
   RefreshControl,
+  AppState,
 } from 'react-native';
 
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { TabCompositeNavigation } from '../types/navigation';
@@ -22,10 +25,16 @@ import { CongratsBanner } from '../components/CongratsBanner';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
-import { haversineDistanceMeters, parseBranchGeo, type BranchGeo } from '../lib/geo';
+import { parseBranchGeo, type BranchGeo } from '../lib/geo';
 import { useAuth } from '../lib/AuthContext';
 import { errorMessage } from '../lib/errorMessage';
-import { ENTRY_METHOD } from '../lib/entryMethod';
+import { fetchMarkingPoints, nearestMarkingPoint, type MarkingPoint } from '../lib/markingPlaces';
+import {
+  enqueueClockIn,
+  flushClockInQueue,
+  newOfflineHash,
+  type QueuedClockIn,
+} from '../lib/clockInQueue';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -160,14 +169,36 @@ async function fetchPauseState(timeEntryId: string): Promise<boolean> {
   return last === PAUSE_EVENT_START;
 }
 
-async function clockInViaBackendApi(
-  latitude: number,
-  longitude: number
-): Promise<{ ok: true; timeEntryId: string } | { ok: false; error: string }> {
+/** Versión visible en telemetría/auditoría: appVersion + updateId de OTA. */
+function appVersionString(): string {
+  const base = Constants.expoConfig?.version ?? '0.0.0';
+  const upd = Updates.updateId ? Updates.updateId.slice(0, 8) : 'embedded';
+  return `${base}+${upd}`;
+}
+
+type ClockInSendBody = {
+  latitude: number;
+  longitude: number;
+  accuracy?: number | null;
+  isMocked?: boolean;
+  offlineHash?: string;
+};
+
+type ClockInSendResult =
+  | { kind: 'ok'; timeEntryId: string | null; alreadyProcessed: boolean }
+  | { kind: 'rejected'; message: string }
+  | { kind: 'network'; error: string };
+
+/**
+ * M2 convergencia marcaje: el servidor (clock_in_secure vía el API) es la ÚNICA
+ * autoridad. `rejected` = el servidor decidió (y auditó) el rechazo;
+ * `network` = no hubo respuesta (candidato a cola offline).
+ */
+async function sendClockInToServer(body: ClockInSendBody): Promise<ClockInSendResult> {
   try {
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !sessionData?.session?.access_token) {
-      return { ok: false, error: sessionError?.message ?? 'Sin sesión' };
+      return { kind: 'network', error: sessionError?.message ?? 'Sin sesión' };
     }
     const url = `${API_BASE}/api/time-entries/clock-in`;
     const res = await fetch(url, {
@@ -176,46 +207,29 @@ async function clockInViaBackendApi(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${sessionData.session.access_token}`,
       },
-      body: JSON.stringify({ latitude, longitude }),
+      body: JSON.stringify({
+        latitude: body.latitude,
+        longitude: body.longitude,
+        ...(body.accuracy != null ? { accuracy: body.accuracy } : {}),
+        ...(body.isMocked ? { isMocked: true } : {}),
+        ...(body.offlineHash ? { offlineHash: body.offlineHash } : {}),
+        platform: 'mobile',
+        app_version: appVersionString(),
+      }),
     });
     const text = await res.text();
     const json = parseJsonObject(text);
     if (!res.ok) {
-      return {
-        ok: false,
-        error: clockInResponseErrorMessage(json, text, res.status),
-      };
+      return { kind: 'rejected', message: clockInResponseErrorMessage(json, text, res.status) };
     }
-    const id = extractClockInTimeEntryId(json);
-    if (!id) {
-      return { ok: false, error: 'Respuesta del servidor sin id de marcaje.' };
-    }
-    return { ok: true, timeEntryId: id };
+    return {
+      kind: 'ok',
+      timeEntryId: extractClockInTimeEntryId(json),
+      alreadyProcessed: json?.already_processed === true,
+    };
   } catch (e: unknown) {
-    return { ok: false, error: errorMessage(e) };
+    return { kind: 'network', error: errorMessage(e) };
   }
-}
-
-function assertInsideGeofence(
-  branchGeo: BranchGeo | null,
-  latitude: number,
-  longitude: number
-): { ok: true } | { ok: false; message: string } {
-  if (!branchGeo) {
-    return {
-      ok: false,
-      message:
-        'No hay geocerca configurada para tu sucursal. Contacta a RRHH para asignar sucursal y coordenadas GPS.',
-    };
-  }
-  const d = haversineDistanceMeters(latitude, longitude, branchGeo.lat, branchGeo.lon);
-  if (d > branchGeo.radiusMeters) {
-    return {
-      ok: false,
-      message: `Estás fuera de la zona permitida (${Math.round(d)} m de tu sucursal; máximo ${Math.round(branchGeo.radiusMeters)} m). Acércate a la sucursal para marcar entrada.`,
-    };
-  }
-  return { ok: true };
 }
 
 export default function HomeScreen() {
@@ -227,6 +241,8 @@ export default function HomeScreen() {
   const [isLoadingPerfil, setIsLoadingPerfil] = useState(true);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [branchGeo, setBranchGeo] = useState<BranchGeo | null>(null);
+  /** M2 convergencia marcaje: puntos múltiples (advisory; el servidor decide). */
+  const [markingPoints, setMarkingPoints] = useState<MarkingPoint[]>([]);
   const [anuncios, setAnuncios] = useState<CompanyAnnouncement[]>([]);
   const [eventos, setEventos] = useState<CompanyEvent[]>([]);
   const [isLoadingHub, setIsLoadingHub] = useState(false);
@@ -638,7 +654,12 @@ export default function HomeScreen() {
     }
   }, [refreshProfile, loadHubData, companyId]);
 
-  const getCurrentLocation = async (): Promise<{ lat: number; lon: number } | null> => {
+  const getCurrentLocation = async (): Promise<{
+    lat: number;
+    lon: number;
+    accuracy: number | null;
+    mocked: boolean;
+  } | null> => {
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert(
@@ -647,12 +668,78 @@ export default function HomeScreen() {
       );
       return null;
     }
-    const location = await Location.getCurrentPositionAsync({});
+    const location = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.High,
+    });
     return {
       lat: location.coords.latitude,
       lon: location.coords.longitude,
+      accuracy: Number.isFinite(location.coords.accuracy ?? NaN) ? location.coords.accuracy : null,
+      mocked: (location as { mocked?: boolean }).mocked === true,
     };
   };
+
+  /** Advisory (no bloquea): si el GPS dice "fuera de todos los puntos", confirmar antes de intentar. */
+  const confirmOutsideAdvisory = (nearestName: string | null, nearestDist: number | null): Promise<boolean> =>
+    new Promise((resolve) => {
+      Alert.alert(
+        'Parece que estás fuera de tus puntos de marcaje',
+        nearestName
+          ? `Tu punto más cercano es "${nearestName}" a ${Math.round(nearestDist ?? 0)} m. El servidor validará el intento y quedará registrado.`
+          : 'No encontramos puntos de marcaje asignados. El servidor validará el intento y quedará registrado.',
+        [
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Intentar igual', onPress: () => resolve(true) },
+        ]
+      );
+    });
+
+  /** Reintenta la cola offline; informa resultados si hubo actividad. */
+  const flushQueuedClockIns = useCallback(async (notify: boolean) => {
+    const { sent, rejectedMessages } = await flushClockInQueue(async (item: QueuedClockIn) => {
+      const r = await sendClockInToServer({
+        latitude: item.latitude,
+        longitude: item.longitude,
+        accuracy: item.accuracy,
+        isMocked: item.isMocked,
+        offlineHash: item.offlineHash,
+      });
+      if (r.kind === 'ok') return { status: 'ok' as const };
+      if (r.kind === 'rejected') return { status: 'rejected' as const, message: r.message };
+      return { status: 'network' as const };
+    });
+    if (notify && (sent > 0 || rejectedMessages.length > 0)) {
+      const parts: string[] = [];
+      if (sent > 0) parts.push(`${sent} marcaje(s) offline registrados.`);
+      if (rejectedMessages.length > 0) parts.push(`Rechazados: ${rejectedMessages[0]}`);
+      Alert.alert('Marcajes pendientes', parts.join('\n'));
+    }
+    return sent;
+  }, []);
+
+  // Puntos de marcaje del colaborador (mismo modelo que el servidor).
+  useEffect(() => {
+    let cancelled = false;
+    if (!employeeRecordId) {
+      setMarkingPoints([]);
+      return;
+    }
+    void fetchMarkingPoints(employeeRecordId).then((pts) => {
+      if (!cancelled) setMarkingPoints(pts);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeRecordId]);
+
+  // Cola offline: reintento al abrir la app y al volver a primer plano.
+  useEffect(() => {
+    void flushQueuedClockIns(true);
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') void flushQueuedClockIns(true);
+    });
+    return () => sub.remove();
+  }, [flushQueuedClockIns]);
 
   const handleClockIn = async () => {
     if (isPunching) return;
@@ -674,58 +761,53 @@ export default function HomeScreen() {
         return;
       }
 
-      const geo = assertInsideGeofence(branchGeo, coords.lat, coords.lon);
-      if (!geo.ok) {
-        Alert.alert('Fuera de la zona permitida', geo.message);
-        return;
-      }
-
-      const nowIso = new Date().toISOString();
-
-      if (API_BASE) {
-        const apiResult = await clockInViaBackendApi(coords.lat, coords.lon);
-        if (apiResult.ok) {
-          setClockStatusLoadError(null);
-          setIsClockedIn(true);
-          setActiveTimeEntryId(apiResult.timeEntryId);
-          setIsOnPause(false);
-          Alert.alert('¡Éxito!', 'Tu entrada ha sido registrada en el sistema.');
-          return;
+      // M2 convergencia marcaje: pre-check ADVISORY multi-punto (mismo modelo
+      // que el servidor: employee_marking_places). La decisión es del servidor.
+      if (markingPoints.length > 0) {
+        const nearest = nearestMarkingPoint(markingPoints, coords.lat, coords.lon);
+        if (nearest && !nearest.inside) {
+          const proceed = await confirmOutsideAdvisory(nearest.point.name, nearest.distanceMeters);
+          if (!proceed) return;
         }
-        console.warn('clock-in API fallback a Supabase:', apiResult.error);
       }
 
-      const payload = {
-        employee_id: employeeRecordId,
-        company_id: companyId,
-        branch_id: employee?.branch_id ?? null,
-        entry_type: ENTRY_METHOD.GPS_MOBILE,
-        status: 'in',
-        clock_in: nowIso,
-        telemetry: {
-          source: 'mobile',
-          platform: Platform.OS,
-          gps: { lat: coords.lat, lon: coords.lon },
-        },
-      };
+      // Vaciar pendientes antes (evita "entrada ya abierta" por un replay posterior).
+      await flushQueuedClockIns(false);
 
-      const { data, error: insertError } = await supabase
-        .from('time_entries')
-        .insert(payload)
-        .select('id')
-        .maybeSingle();
+      const result = await sendClockInToServer({
+        latitude: coords.lat,
+        longitude: coords.lon,
+        accuracy: coords.accuracy,
+        isMocked: coords.mocked,
+      });
 
-      if (insertError) {
-        Alert.alert('Error', insertError.message);
+      if (result.kind === 'ok') {
+        setClockStatusLoadError(null);
+        setIsClockedIn(true);
+        setActiveTimeEntryId(result.timeEntryId);
+        setIsOnPause(false);
+        Alert.alert('¡Éxito!', 'Tu entrada ha sido registrada en el sistema.');
         return;
       }
 
-      const newId = (data as { id?: string } | null)?.id ?? null;
-      setClockStatusLoadError(null);
-      setIsClockedIn(!!newId);
-      setActiveTimeEntryId(newId);
-      setIsOnPause(false);
-      Alert.alert('¡Éxito!', 'Tu entrada ha sido registrada en el sistema.');
+      if (result.kind === 'rejected') {
+        Alert.alert('Marcaje no registrado', result.message);
+        return;
+      }
+
+      // Sin respuesta del servidor: encolar offline (idempotente por hash).
+      await enqueueClockIn({
+        offlineHash: newOfflineHash(),
+        latitude: coords.lat,
+        longitude: coords.lon,
+        accuracy: coords.accuracy,
+        isMocked: coords.mocked,
+        queuedAtIso: new Date().toISOString(),
+      });
+      Alert.alert(
+        'Sin conexión',
+        'No hay conexión con el servidor. Tu marcaje quedó guardado en el teléfono y se registrará automáticamente al reconectar (con la hora del registro).'
+      );
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'No se pudo completar el marcaje. Intenta de nuevo.');
