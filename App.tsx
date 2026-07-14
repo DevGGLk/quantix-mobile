@@ -6,6 +6,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sentry from '@sentry/react-native';
+import * as Updates from 'expo-updates';
 import { theme } from './lib/theme';
 import { decideOnboardingGate } from './lib/onboardingGate';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
@@ -179,6 +180,23 @@ function MainTabs() {
 function AppInner() {
   const { session, isLoading, employee, isOperativeEmployee } = useAuth();
   const [onboardingGate, setOnboardingGate] = useState<OnboardingGateState>('loading');
+
+  // M2 convergencia marcaje: buscar y aplicar OTA al arrancar, para que
+  // correcciones de lógica (p. ej. geocercas) lleguen sin pasar por tiendas.
+  useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled) return;
+    void (async () => {
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch {
+        // sin red o sin update: seguir normal
+      }
+    })();
+  }, []);
 
   const releaseToMainApp = useCallback(() => {
     setOnboardingGate('app');
