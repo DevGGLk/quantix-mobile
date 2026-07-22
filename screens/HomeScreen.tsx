@@ -22,6 +22,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { TabCompositeNavigation } from '../types/navigation';
 import { HelpModal } from '../components/HelpModal';
 import { CongratsBanner } from '../components/CongratsBanner';
+import { WorkedTimeChronometer } from '../components/WorkedTimeChronometer';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
@@ -250,6 +251,8 @@ export default function HomeScreen() {
   const [isLoadingClockStatus, setIsLoadingClockStatus] = useState(true);
   const [activeTimeEntryId, setActiveTimeEntryId] = useState<string | null>(null);
   const [isOnPause, setIsOnPause] = useState(false);
+  /** ISO del `clock_in` del turno abierto → alimenta el cronómetro en vivo. */
+  const [activeClockInAt, setActiveClockInAt] = useState<string | null>(null);
   const [isPunching, setIsPunching] = useState(false);
   const [isPauseActionLoading, setIsPauseActionLoading] = useState(false);
   /** Solo fallo crítico del perfil (bloquea nombre / empresa). */
@@ -432,13 +435,14 @@ export default function HomeScreen() {
 
         if (isMounted) setClockStatusLoadError(null);
 
-        const last = data?.[0] as { id?: string; clock_out?: string | null } | undefined;
+        const last = data?.[0] as { id?: string; clock_out?: string | null; clock_in?: string | null } | undefined;
         const active = Boolean(last?.id) && !last?.clock_out;
 
         if (isMounted) {
           setIsClockedIn(active);
           const eid = active ? (last!.id as string) : null;
           setActiveTimeEntryId(eid);
+          setActiveClockInAt(active ? ((last!.clock_in as string | null) ?? null) : null);
           if (eid) {
             await refreshPauseState(eid);
           } else {
@@ -785,6 +789,7 @@ export default function HomeScreen() {
         setClockStatusLoadError(null);
         setIsClockedIn(true);
         setActiveTimeEntryId(result.timeEntryId);
+        setActiveClockInAt(new Date().toISOString());
         setIsOnPause(false);
         Alert.alert('¡Éxito!', 'Tu entrada ha sido registrada en el sistema.');
         return;
@@ -869,6 +874,7 @@ export default function HomeScreen() {
       setClockStatusLoadError(null);
       setIsClockedIn(false);
       setActiveTimeEntryId(null);
+      setActiveClockInAt(null);
       setIsOnPause(false);
       Alert.alert('¡Éxito!', 'Tu salida ha sido registrada en el sistema.');
     } catch (err) {
@@ -999,6 +1005,9 @@ export default function HomeScreen() {
               <Ionicons name="information-circle-outline" size={24} color={theme.textMuted} />
             </TouchableOpacity>
           </View>
+          {isClockedIn && activeClockInAt ? (
+            <WorkedTimeChronometer clockInAt={activeClockInAt} onPause={isOnPause} />
+          ) : null}
           {!isClockedIn ? (
             <TouchableOpacity
               style={[
