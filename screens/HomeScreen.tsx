@@ -408,12 +408,16 @@ export default function HomeScreen() {
           return;
         }
 
+        // 'flagged' = jornada que la guarda dejó abierta esperando a RRHH. No es un turno en
+        // curso: si entra acá, el cronómetro cuenta desde una entrada de días atrás y muestra
+        // 71 h o 287 h corriendo. Solo 'in' y 'break' son turno activo.
         let query = supabase
           .from('time_entries')
-          .select('id, entry_type, clock_in, clock_out, company_id')
+          .select('id, entry_type, clock_in, clock_out, company_id, status')
           .eq('employee_id', employeeRecordId)
           .eq('company_id', companyId)
           .is('clock_out', null)
+          .in('status', ['in', 'break'])
           .order('clock_in', { ascending: false })
           .limit(1);
 
@@ -853,12 +857,23 @@ export default function HomeScreen() {
       if (companyId) {
         updateQ = updateQ.eq('company_id', companyId);
       }
-      const { error: updateError } = await updateQ;
+      // .select() es obligatorio: tg_block_stale_clockout es un trigger BEFORE que al
+      // rechazar la salida pone clock_out en NULL + status 'flagged' y retorna NEW, así que
+      // el UPDATE no devuelve error. Sin leer la fila de vuelta no hay forma de saber que la
+      // jornada quedó abierta, y el '¡Éxito!' era mentira.
+      const { data: updated, error: updateError } = await updateQ
+        .select('id, clock_out, status, closure_note')
+        .maybeSingle();
 
       if (updateError) {
         Alert.alert('Error', updateError.message);
         return;
       }
+
+      const quedoAbierta =
+        updated != null &&
+        ((updated as { clock_out?: string | null }).clock_out == null ||
+          (updated as { status?: string }).status === 'flagged');
 
       if (companyId && employeeRecordId) {
         const { error: delLiveErr } = await supabase
@@ -876,6 +891,18 @@ export default function HomeScreen() {
       setActiveTimeEntryId(null);
       setActiveClockInAt(null);
       setIsOnPause(false);
+
+      if (quedoAbierta) {
+        Alert.alert(
+          'Jornada enviada a revisión',
+          'Registramos tu marcaje, pero esta jornada llevaba demasiado tiempo abierta y el ' +
+            'sistema no puede calcular tu hora de salida. Quedó enviada a RRHH para que la ' +
+            'revisen y confirmen tus horas. No pierdas tu tiempo trabajado: quedó registrado.\n\n' +
+            'Ya podés marcar tu entrada de hoy con normalidad.'
+        );
+        return;
+      }
+
       Alert.alert('¡Éxito!', 'Tu salida ha sido registrada en el sistema.');
     } catch (err) {
       console.error(err);
