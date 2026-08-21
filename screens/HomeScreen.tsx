@@ -186,7 +186,7 @@ type ClockInSendBody = {
 };
 
 type ClockInSendResult =
-  | { kind: 'ok'; timeEntryId: string | null; alreadyProcessed: boolean }
+  | { kind: 'ok'; timeEntryId: string | null; alreadyProcessed: boolean; markingPlace: string | null }
   | { kind: 'rejected'; message: string }
   | { kind: 'network'; error: string };
 
@@ -223,10 +223,14 @@ async function sendClockInToServer(body: ClockInSendBody): Promise<ClockInSendRe
     if (!res.ok) {
       return { kind: 'rejected', message: clockInResponseErrorMessage(json, text, res.status) };
     }
+    // `branch_name` es el punto que clock_in_secure resolvió por GPS (`v_best_name`), no la
+    // sucursal de la ficha. Es lo que hay que mostrarle al multi-punto.
+    const punto = typeof json?.branch_name === 'string' ? json.branch_name.trim() : '';
     return {
       kind: 'ok',
       timeEntryId: extractClockInTimeEntryId(json),
       alreadyProcessed: json?.already_processed === true,
+      markingPlace: punto || null,
     };
   } catch (e: unknown) {
     return { kind: 'network', error: errorMessage(e) };
@@ -253,6 +257,14 @@ export default function HomeScreen() {
   const [isOnPause, setIsOnPause] = useState(false);
   /** ISO del `clock_in` del turno abierto → alimenta el cronómetro en vivo. */
   const [activeClockInAt, setActiveClockInAt] = useState<string | null>(null);
+  /**
+   * Punto donde quedó registrada la entrada del turno abierto. Se lee de
+   * `clock_in_attempts.matched_place` y NO de `time_entries.telemetry`: hasta el arreglo
+   * del cierre, el propio clock-out del móvil sobrescribía esa columna y borraba el punto
+   * (595 de 1682 jornadas en 30 días). La tabla de intentos nunca se sobrescribe.
+   * Importa sobre todo a los multi-punto: 55 de 112 activos al 20-ago-2026.
+   */
+  const [activeMarkingPlace, setActiveMarkingPlace] = useState<string | null>(null);
   const [isPunching, setIsPunching] = useState(false);
   const [isPauseActionLoading, setIsPauseActionLoading] = useState(false);
   /** Solo fallo crítico del perfil (bloquea nombre / empresa). */
@@ -453,6 +465,28 @@ export default function HomeScreen() {
             setIsOnPause(false);
           }
         }
+
+        // Punto de marcaje de la entrada abierta. Falla blando a propósito: el cronómetro
+        // no puede depender de esto, así que si no se puede leer se muestra sin punto.
+        if (active && last?.id) {
+          const { data: attempt, error: attemptError } = await supabase
+            .from('clock_in_attempts')
+            .select('matched_place')
+            .eq('time_entry_id', last.id)
+            .not('matched_place', 'is', null)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (attemptError) {
+            console.warn('clock_in_attempts (punto de marcaje):', attemptError.message);
+          }
+          const punto = (attempt as { matched_place?: string | null } | null)?.matched_place;
+          if (isMounted) {
+            setActiveMarkingPlace(typeof punto === 'string' && punto.trim() ? punto.trim() : null);
+          }
+        } else if (isMounted) {
+          setActiveMarkingPlace(null);
+        }
       } catch (e: unknown) {
         console.warn('loadTodayClockStatus:', errorMessage(e));
         captureException(e, { area: 'home_clock_status', stage: 'loadTodayClockStatus' });
@@ -462,6 +496,7 @@ export default function HomeScreen() {
           );
           setIsClockedIn(false);
           setActiveTimeEntryId(null);
+          setActiveMarkingPlace(null);
           setIsOnPause(false);
         }
       } finally {
@@ -794,8 +829,14 @@ export default function HomeScreen() {
         setIsClockedIn(true);
         setActiveTimeEntryId(result.timeEntryId);
         setActiveClockInAt(new Date().toISOString());
+        setActiveMarkingPlace(result.markingPlace);
         setIsOnPause(false);
-        Alert.alert('¡Éxito!', 'Tu entrada ha sido registrada en el sistema.');
+        Alert.alert(
+          '¡Éxito!',
+          result.markingPlace
+            ? `Tu entrada quedó registrada en ${result.markingPlace}.`
+            : 'Tu entrada ha sido registrada en el sistema.'
+        );
         return;
       }
 
@@ -840,40 +881,61 @@ export default function HomeScreen() {
         return;
       }
 
-      const nowIso = new Date().toISOString();
-
-      let updateQ = supabase
-        .from('time_entries')
-        .update({
-          clock_out: nowIso,
-          status: 'out',
-          telemetry: {
-            source: 'mobile',
-            platform: Platform.OS,
-            gps: { lat: coords.lat, lon: coords.lon },
-          },
-        })
-        .eq('id', activeTimeEntryId);
-      if (companyId) {
-        updateQ = updateQ.eq('company_id', companyId);
-      }
-      // .select() es obligatorio: tg_block_stale_clockout es un trigger BEFORE que al
-      // rechazar la salida pone clock_out en NULL + status 'flagged' y retorna NEW, así que
-      // el UPDATE no devuelve error. Sin leer la fila de vuelta no hay forma de saber que la
-      // jornada quedó abierta, y el '¡Éxito!' era mentira.
-      const { data: updated, error: updateError } = await updateQ
-        .select('id, clock_out, status, closure_note')
-        .maybeSingle();
+      // El cierre va por RPC, no por `.update()` directo. El update plano REEMPLAZABA la
+      // columna `telemetry` y borraba lo que clock_in_secure había guardado en la entrada
+      // (marking_place, accuracy_meters, geofence_distance_meters, branch_center): 595 de
+      // 1682 jornadas en 30 días, 38 personas. El RPC MEZCLA bajo la clave 'salida'.
+      // Además devuelve `aplicado`, que es lo único que distingue "cerré la jornada" de
+      // "no escribí nada porque el cron ya la había cerrado".
+      const { data: rpcRows, error: updateError } = await supabase.rpc('clock_out_employee', {
+        p_entry_id: activeTimeEntryId,
+        p_telemetry: {
+          source: 'mobile',
+          platform: Platform.OS,
+          gps: { lat: coords.lat, lon: coords.lon },
+        },
+      });
 
       if (updateError) {
         Alert.alert('Error', updateError.message);
         return;
       }
 
+      const updated = (Array.isArray(rpcRows) ? rpcRows[0] : rpcRows) as
+        | {
+            id?: string;
+            clock_out?: string | null;
+            status?: string;
+            aplicado?: boolean | null;
+            marking_place?: string | null;
+          }
+        | null
+        | undefined;
+
+      // `aplicado === false` = close_forgotten_entries() ya había cerrado la jornada con la
+      // hora PROGRAMADA y la hora real de esta persona no se escribió. Antes esto caía en el
+      // '¡Éxito!' de abajo y las horas se perdían sin que nadie se enterara.
+      if (updated?.aplicado === false) {
+        setClockStatusLoadError(null);
+        setIsClockedIn(false);
+        setActiveTimeEntryId(null);
+        setActiveClockInAt(null);
+        setActiveMarkingPlace(null);
+        setIsOnPause(false);
+        Alert.alert(
+          'Tu hora de salida no quedó registrada',
+          'El sistema ya había cerrado esta jornada automáticamente con la hora de fin de tu ' +
+            'turno, así que la hora en que realmente saliste no se guardó. Avisá a RRHH para que ' +
+            'te corrijan la jornada y no pierdas las horas trabajadas.'
+        );
+        return;
+      }
+
+      // tg_block_stale_clockout es un trigger BEFORE que al rechazar la salida pone
+      // clock_out en NULL + status 'flagged' y retorna NEW, así que no hay error. Sin
+      // mirar la fila de vuelta no hay forma de saber que la jornada quedó abierta.
       const quedoAbierta =
-        updated != null &&
-        ((updated as { clock_out?: string | null }).clock_out == null ||
-          (updated as { status?: string }).status === 'flagged');
+        updated != null && (updated.clock_out == null || updated.status === 'flagged');
 
       if (companyId && employeeRecordId) {
         const { error: delLiveErr } = await supabase
@@ -890,6 +952,7 @@ export default function HomeScreen() {
       setIsClockedIn(false);
       setActiveTimeEntryId(null);
       setActiveClockInAt(null);
+      setActiveMarkingPlace(null);
       setIsOnPause(false);
 
       if (quedoAbierta) {
@@ -1034,6 +1097,11 @@ export default function HomeScreen() {
           </View>
           {isClockedIn && activeClockInAt ? (
             <WorkedTimeChronometer clockInAt={activeClockInAt} onPause={isOnPause} />
+          ) : null}
+          {/* Con varios puntos asignados, no saber en cuál quedó registrado el marcaje es
+              justamente lo que dejaba la pantalla en blanco. */}
+          {isClockedIn && activeMarkingPlace ? (
+            <Text style={styles.markingPlaceLabel}>Marcaste en {activeMarkingPlace}</Text>
           ) : null}
           {!isClockedIn ? (
             <TouchableOpacity
@@ -1374,6 +1442,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.backgroundAlt,
     textAlign: 'center',
+    paddingHorizontal: 8,
+  },
+  markingPlaceLabel: {
+    fontSize: 13,
+    color: theme.textMuted,
+    textAlign: 'center',
+    marginBottom: 12,
     paddingHorizontal: 8,
   },
   hubSection: {
