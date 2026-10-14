@@ -20,7 +20,15 @@ type VacBalance = {
   days_taken: number;
   days_programmed: number;
   last_accrual_date: string | null;
+  /** Saldo + devengo desde el último crédito del cron, al día de hoy (Managua). */
+  saldo_al_dia?: number | null;
+  fecha_corte?: string | null;
+  /** Fecha real de la carga inicial (leave_opening_balances.as_of). No se mueve. */
+  saldo_cargado_el?: string | null;
 };
+
+/** Ley 185: 30 días por año = 2.5 por mes = 2.5/30 por día. */
+const DEVENGO_DIARIO = 2.5 / 30;
 
 function fmtDias(n: number | null | undefined): string {
   const v = Math.round(Number(n ?? 0) * 100) / 100;
@@ -101,10 +109,15 @@ export default function VacacionesScreen() {
     setRefreshing(false);
   }, [load]);
 
+  // Saldo sembrado = carga histórica para quien ya trabajaba antes del sistema. Se deduce de la
+  // fecha de carga inicial, que no se mueve. last_accrual_date la mueve el cron todos los días y
+  // hacía decir "tu saldo inicial se cargó HOY" cada día.
   const seeded =
-    !!balance?.last_accrual_date &&
+    !!balance?.saldo_cargado_el &&
     !!hireDate &&
-    daysBetween(hireDate, balance.last_accrual_date) > 35;
+    daysBetween(hireDate, balance.saldo_cargado_el) > 35;
+  const saldoMostrado = balance ? (balance.saldo_al_dia ?? balance.vacation_balance) : 0;
+  const fechaCorte = balance?.fecha_corte ?? balance?.last_accrual_date ?? null;
 
   if (loading) {
     return (
@@ -126,8 +139,13 @@ export default function VacacionesScreen() {
           {/* Tarjeta principal: saldo disponible */}
           <View style={styles.saldoCard}>
             <Ionicons name="airplane-outline" size={28} color="#ffffff" />
-            <Text style={styles.saldoNumber}>{fmtDias(balance.vacation_balance)}</Text>
+            <Text style={styles.saldoNumber}>{fmtDias(saldoMostrado)}</Text>
             <Text style={styles.saldoLabel}>días disponibles</Text>
+            {fechaCorte ? (
+              <Text style={styles.saldoLabel}>
+                Al {fmtFecha(fechaCorte)} · suma ≈{fmtDias(DEVENGO_DIARIO)} días por día
+              </Text>
+            ) : null}
           </View>
 
           {/* Movimientos */}
@@ -159,15 +177,11 @@ export default function VacacionesScreen() {
             <View style={styles.noteCard}>
               <Ionicons name="information-circle-outline" size={18} color="#92400e" />
               <Text style={styles.noteText}>
-                Tu saldo inicial se cargó el {fmtFecha(balance.last_accrual_date)} y ya incluye las
-                vacaciones que tomaste antes de usar el sistema. Los descansos se registran a partir de
-                esa fecha.
+                Tu saldo inicial se cargó el {fmtFecha(balance.saldo_cargado_el)} y ya incluye las
+                vacaciones que tomaste antes de usar el sistema. Desde entonces el saldo crece todos
+                los días.
               </Text>
             </View>
-          ) : balance.last_accrual_date ? (
-            <Text style={styles.updatedText}>
-              Saldo actualizado al {fmtFecha(balance.last_accrual_date)}.
-            </Text>
           ) : null}
 
           <TouchableOpacity

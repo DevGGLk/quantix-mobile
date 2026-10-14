@@ -191,7 +191,9 @@ export default function PerfilScreen() {
             { p_employee_id: empRecordId }
           );
           if (!vacErr && vacData) {
-            const vb = (vacData as { vacation_balance?: number | string | null }).vacation_balance;
+            // saldo_al_dia: el mismo número que muestra la pantalla de Vacaciones.
+            const vd = vacData as { vacation_balance?: number | string | null; saldo_al_dia?: number | string | null };
+            const vb = vd.saldo_al_dia ?? vd.vacation_balance;
             const n = Number(vb);
             if (Number.isFinite(n)) vacationAvailable = n;
           } else if (vacErr) {
