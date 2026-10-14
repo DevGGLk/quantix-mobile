@@ -12,7 +12,7 @@ import { decideOnboardingGate } from './lib/onboardingGate';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
 import OnboardingScreen from './screens/OnboardingScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
-import { ThemeProvider } from './theme';
+import { ThemeProvider, useTheme } from './theme';
 import { supabase } from './lib/supabase';
 import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -99,6 +99,10 @@ function AuthRecordsBannerBar() {
 
 function MainTabs() {
   const { employee } = useAuth();
+  const { palette } = useTheme();
+  // Regla de marca: nav activa = índigo; barra clara con borde superior sutil.
+  const activeColor = palette.brand.base;
+  const inactiveColor = palette.text.tertiary;
   // Toggle por empresa (company_settings.enable_ai_assistant). Default true:
   // no ocultamos el tab prematuramente; solo si la empresa lo apagó explícitamente.
   const [aiAssistantEnabled, setAiAssistantEnabled] = useState(true);
@@ -127,8 +131,8 @@ function MainTabs() {
       screenOptions={({ route }) => ({
         headerShown: HEADER_SHOWN,
         tabBarShowLabel: TAB_BAR_SHOW_LABEL,
-        tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: theme.textMuted,
+        tabBarActiveTintColor: activeColor,
+        tabBarInactiveTintColor: inactiveColor,
         tabBarIcon: ({ focused }) => {
           const names = TAB_ICONS[route.name as keyof typeof TAB_ICONS];
           const icon = focused ? names.active : names.inactive;
@@ -136,13 +140,14 @@ function MainTabs() {
             <Ionicons
               name={icon as keyof typeof Ionicons.glyphMap}
               size={24}
-              color={focused ? theme.primary : theme.textMuted}
+              color={focused ? activeColor : inactiveColor}
             />
           );
         },
         tabBarStyle: {
-          backgroundColor: theme.textPrimary,
-          borderTopWidth: 0,
+          backgroundColor: palette.surface.card,
+          borderTopWidth: 1,
+          borderTopColor: palette.border,
           ...Platform.select({
             ios: {
               shadowColor: '#000',
@@ -460,9 +465,10 @@ function AppInner() {
 
 function App() {
   return (
-    // Sigue el modo del sistema (claro/oscuro del teléfono). Aditivo: solo
-    // LoginScreen consume useTheme() por ahora; el resto sigue con lib/theme.ts.
-    <ThemeProvider defaultPreference="system">
+    // Claro fijo mientras conviven pantallas migradas al theme nuevo y pantallas con
+    // lib/theme.ts (que es solo claro): evita mezclar claro/oscuro en la misma sesión.
+    // Paso final del rediseño, cuando todo consuma useTheme(): volver a "system".
+    <ThemeProvider defaultPreference="light">
       <AuthProvider>
         <AppInner />
       </AuthProvider>
