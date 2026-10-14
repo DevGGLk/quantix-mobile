@@ -473,6 +473,9 @@ export default function HomeScreen() {
             .from('clock_in_attempts')
             .select('matched_place')
             .eq('time_entry_id', last.id)
+            // Desde la auditoría de salidas la tabla guarda los dos sentidos: acá se quiere
+            // el punto donde la persona fichó al ENTRAR.
+            .eq('action', 'clock_in')
             .not('matched_place', 'is', null)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -722,6 +725,40 @@ export default function HomeScreen() {
     };
   };
 
+  /**
+   * Ubicación para la SALIDA: best-effort, nunca bloquea ni interrumpe.
+   *
+   * La entrada sí necesita GPS (el servidor valida la geocerca en clock_in_secure). La salida
+   * no: `clock_out_employee` no mira coordenadas. Pero `handleClockOut` usaba
+   * `getCurrentLocation()`, que alerta y devuelve null si falta el permiso y que LANZA si el GPS
+   * da timeout o está apagado. Con `if (!coords) return;` el marcaje moría en el teléfono sin
+   * llegar nunca a la base: la persona tocaba "Marcar salida", el botón giraba y no pasaba nada.
+   *
+   * Misma política que la web: si no hay ubicación, la salida se registra igual y se marca
+   * 'sin_ubicacion' para que RRHH la revise.
+   */
+  const getCurrentLocationForClockOut = async (): Promise<{
+    lat: number;
+    lon: number;
+    accuracy: number | null;
+  } | null> => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return null;
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      return {
+        lat: location.coords.latitude,
+        lon: location.coords.longitude,
+        accuracy: Number.isFinite(location.coords.accuracy ?? NaN) ? location.coords.accuracy : null,
+      };
+    } catch (err) {
+      console.warn('GPS no disponible al marcar salida; se cierra sin ubicación:', err);
+      return null;
+    }
+  };
+
   /** Advisory (no bloquea): si el GPS dice "fuera de todos los puntos", confirmar antes de intentar. */
   const confirmOutsideAdvisory = (nearestName: string | null, nearestDist: number | null): Promise<boolean> =>
     new Promise((resolve) => {
@@ -870,8 +907,8 @@ export default function HomeScreen() {
     if (isPunching) return;
     setIsPunching(true);
     try {
-      const coords = await getCurrentLocation();
-      if (!coords) return;
+      // Best-effort: si no hay GPS la salida se marca igual. Ver getCurrentLocationForClockOut.
+      const coords = await getCurrentLocationForClockOut();
 
       if (!activeTimeEntryId) {
         Alert.alert(
@@ -892,12 +929,34 @@ export default function HomeScreen() {
         p_telemetry: {
           source: 'mobile',
           platform: Platform.OS,
-          gps: { lat: coords.lat, lon: coords.lon },
+          ...(coords ? { gps: { lat: coords.lat, lon: coords.lon } } : { sin_ubicacion: true }),
+          ...(coords?.accuracy != null ? { accuracy_meters: coords.accuracy } : {}),
         },
       });
 
       if (updateError) {
-        Alert.alert('Error', updateError.message);
+        // Antes esto era `Alert.alert('Error', updateError.message)`: el error crudo de Postgres
+        // en la cara del colaborador. Es el patrón que puso un "permission denied for function
+        // stale_clockout_limit" en un cartel rojo. La web ya traducía; la app no.
+        //
+        // Misma regla que /api/time-entries/clock-out: los mensajes que el RPC redacta a
+        // propósito para el colaborador empiezan con `nombre_funcion:` o son validaciones de
+        // negocio; esos se muestran. Los de infraestructura (permisos, función faltante, red)
+        // se traducen y el detalle técnico queda en el log.
+        const esErrorDeNegocio = /^[a-z_]+:/.test(updateError.message ?? '');
+        console.error('[clock-out] rpc', {
+          code: updateError.code,
+          message: updateError.message,
+          details: updateError.details,
+          entryId: activeTimeEntryId,
+        });
+        Alert.alert(
+          esErrorDeNegocio ? 'No se pudo marcar la salida' : 'Problema del sistema',
+          esErrorDeNegocio
+            ? updateError.message
+            : 'No pudimos registrar tu salida por un problema del sistema. Ya quedó reportado. ' +
+                'Avisale a RRHH para que registren tu hora y no pierdas el tiempo trabajado.'
+        );
         return;
       }
 
@@ -962,6 +1021,15 @@ export default function HomeScreen() {
             'sistema no puede calcular tu hora de salida. Quedó enviada a RRHH para que la ' +
             'revisen y confirmen tus horas. No pierdas tu tiempo trabajado: quedó registrado.\n\n' +
             'Ya podés marcar tu entrada de hoy con normalidad.'
+        );
+        return;
+      }
+
+      if (!coords) {
+        Alert.alert(
+          'Salida registrada, sin ubicación',
+          'Registramos tu salida y tus horas quedaron guardadas, pero no pudimos leer tu ' +
+            'ubicación. RRHH va a revisar el marcaje. No perdés tu tiempo trabajado.'
         );
         return;
       }
