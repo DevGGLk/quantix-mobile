@@ -1074,6 +1074,7 @@ export default function HomeScreen() {
             status?: string;
             aplicado?: boolean | null;
             marking_place?: string | null;
+            total_hours?: number | string | null;
           }
         | null
         | undefined;
@@ -1132,16 +1133,25 @@ export default function HomeScreen() {
         return;
       }
 
+      // Horas que la base calculó para esta jornada (total_hours es columna generada). Antes se
+      // mostraba solo "¡Éxito!" y la gente no sabía cuánto le quedó registrado.
+      const horas = Number(updated?.total_hours);
+      const textoHoras =
+        Number.isFinite(horas) && horas >= 0
+          ? `Jornada cerrada: ${Math.floor(horas)} h ${String(Math.round((horas % 1) * 60)).padStart(2, '0')} min.`
+          : '';
+
       if (!coords) {
         Alert.alert(
           'Salida registrada, sin ubicación',
-          'Registramos tu salida y tus horas quedaron guardadas, pero no pudimos leer tu ' +
+          (textoHoras ? `${textoHoras}\n\n` : '') +
+            'Registramos tu salida y tus horas quedaron guardadas, pero no pudimos leer tu ' +
             'ubicación. RRHH va a revisar el marcaje. No perdés tu tiempo trabajado.'
         );
         return;
       }
 
-      Alert.alert('¡Éxito!', 'Tu salida ha sido registrada en el sistema.');
+      Alert.alert('¡Salida registrada!', textoHoras || 'Tu salida ha sido registrada en el sistema.');
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'No se pudo completar el marcaje. Intenta de nuevo.');
