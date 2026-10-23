@@ -10,6 +10,7 @@ import {
   ScrollView,
   RefreshControl,
   AppState,
+  Linking,
 } from 'react-native';
 
 import * as Notifications from 'expo-notifications';
@@ -30,6 +31,7 @@ import { parseBranchGeo, type BranchGeo } from '../lib/geo';
 import { useAuth } from '../lib/AuthContext';
 import { errorMessage } from '../lib/errorMessage';
 import { fetchMarkingPoints, nearestMarkingPoint, type MarkingPoint } from '../lib/markingPlaces';
+import { obtenerUbicacionParaEntrada, PRECISION_ACEPTABLE_M } from '../lib/ubicacionEntrada';
 import {
   enqueueClockIn,
   flushClockInQueue,
@@ -187,8 +189,13 @@ type ClockInSendBody = {
 
 type ClockInSendResult =
   | { kind: 'ok'; timeEntryId: string | null; alreadyProcessed: boolean; markingPlace: string | null }
-  | { kind: 'rejected'; message: string }
+  | { kind: 'rejected'; message: string; reason: string | null }
+  /** Sin sesión válida. NO es falta de red: encolarlo lo reintentaba para siempre. */
+  | { kind: 'session'; error: string }
   | { kind: 'network'; error: string };
+
+/** Sin respuesta en este tiempo se trata como sin conexión (antes el botón podía girar sin fin). */
+const CLOCK_IN_FETCH_TIMEOUT_MS = 20_000;
 
 /**
  * M2 convergencia marcaje: el servidor (clock_in_secure vía el API) es la ÚNICA
@@ -199,11 +206,14 @@ async function sendClockInToServer(body: ClockInSendBody): Promise<ClockInSendRe
   try {
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !sessionData?.session?.access_token) {
-      return { kind: 'network', error: sessionError?.message ?? 'Sin sesión' };
+      return { kind: 'session', error: sessionError?.message ?? 'Sin sesión' };
     }
     const url = `${API_BASE}/api/time-entries/clock-in`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CLOCK_IN_FETCH_TIMEOUT_MS);
     const res = await fetch(url, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${sessionData.session.access_token}`,
@@ -217,11 +227,18 @@ async function sendClockInToServer(body: ClockInSendBody): Promise<ClockInSendRe
         platform: 'mobile',
         app_version: appVersionString(),
       }),
-    });
+    }).finally(() => clearTimeout(timeout));
     const text = await res.text();
     const json = parseJsonObject(text);
+    if (res.status === 401) {
+      return { kind: 'session', error: clockInResponseErrorMessage(json, text, res.status) };
+    }
     if (!res.ok) {
-      return { kind: 'rejected', message: clockInResponseErrorMessage(json, text, res.status) };
+      return {
+        kind: 'rejected',
+        message: clockInResponseErrorMessage(json, text, res.status),
+        reason: typeof json?.reason === 'string' ? json.reason : null,
+      };
     }
     // `branch_name` es el punto que clock_in_secure resolvió por GPS (`v_best_name`), no la
     // sucursal de la ficha. Es lo que hay que mostrarle al multi-punto.
@@ -266,6 +283,14 @@ export default function HomeScreen() {
    */
   const [activeMarkingPlace, setActiveMarkingPlace] = useState<string | null>(null);
   const [isPunching, setIsPunching] = useState(false);
+  /**
+   * Candado contra el doble toque. `isPunching` es estado de React: un segundo toque dentro del
+   * mismo render lo ve en false y manda otro marcaje (Kevin: 3 intentos en 2 s; Diana: 2 entradas
+   * en el mismo milisegundo, una cerrada con 0 h).
+   */
+  const punchingRef = useRef(false);
+  /** Incrementarlo vuelve a leer el turno abierto desde la base (tras reenviar la cola, 409, etc.). */
+  const [statusReloadKey, setStatusReloadKey] = useState(0);
   const [isPauseActionLoading, setIsPauseActionLoading] = useState(false);
   /** Solo fallo crítico del perfil (bloquea nombre / empresa). */
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
@@ -511,7 +536,7 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, [employeeRecordId, companyId, refreshPauseState]);
+  }, [employeeRecordId, companyId, refreshPauseState, statusReloadKey]);
 
   /**
    * Telemetría en vivo (`live_locations`): solo con expediente, turno activo y consentimiento en `employees`.
@@ -700,29 +725,97 @@ export default function HomeScreen() {
     }
   }, [refreshProfile, loadHubData, companyId]);
 
-  const getCurrentLocation = async (): Promise<{
-    lat: number;
-    lon: number;
-    accuracy: number | null;
-    mocked: boolean;
-  } | null> => {
-    let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
+  /** Explica por qué no se pudo leer la ubicación de entrada y ofrece el atajo que corresponde. */
+  /**
+   * Reporta al servidor un fallo de marcaje que nunca llegó a clock_in_secure (GPS, permiso,
+   * cancelación). Queda en Asistencia › Intentos de marcaje (antes no quedaba rastro).
+   * Fire-and-forget: si falla, no se le muestra nada a la persona.
+   */
+  const reportarFalloMarcaje = (
+    reason:
+      | 'cliente_permiso_denegado'
+      | 'cliente_permiso_bloqueado'
+      | 'cliente_gps_apagado'
+      | 'cliente_sin_senal'
+      | 'cliente_cancelo_fuera_de_punto'
+      | 'cliente_error',
+    extra: {
+      message?: string;
+      lat?: number;
+      lon?: number;
+      accuracy?: number | null;
+      nearestPlace?: string | null;
+      nearestDistance?: number | null;
+    } = {}
+  ) => {
+    void supabase
+      .rpc('log_clock_in_client_failure', {
+        p_reason: reason,
+        p_message: extra.message ?? null,
+        p_platform: 'mobile',
+        p_app_version: appVersionString(),
+        p_latitude: extra.lat ?? null,
+        p_longitude: extra.lon ?? null,
+        p_accuracy: extra.accuracy ?? null,
+        p_nearest_place: extra.nearestPlace ?? null,
+        p_nearest_distance: extra.nearestDistance ?? null,
+      })
+      .then(({ error }) => {
+        if (error) console.warn('log_clock_in_client_failure:', error.message);
+      });
+  };
+
+  const mostrarProblemaUbicacion = (
+    motivo: 'permiso_denegado' | 'permiso_bloqueado' | 'servicios_apagados' | 'sin_senal'
+  ) => {
+    captureException(new Error(`clock_in_ubicacion:${motivo}`), { area: 'home_clock_in', stage: 'ubicacion' });
+    reportarFalloMarcaje(
+      motivo === 'permiso_denegado'
+        ? 'cliente_permiso_denegado'
+        : motivo === 'permiso_bloqueado'
+          ? 'cliente_permiso_bloqueado'
+          : motivo === 'servicios_apagados'
+            ? 'cliente_gps_apagado'
+            : 'cliente_sin_senal'
+    );
+    if (motivo === 'permiso_bloqueado') {
+      Alert.alert(
+        'Ubicación bloqueada',
+        'QuantixHR no tiene permiso de ubicación. Abrí los ajustes de la app y activá Ubicación → "Permitir mientras se usa la app" con "Ubicación precisa".',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Abrir ajustes', onPress: () => void Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+    if (motivo === 'permiso_denegado') {
       Alert.alert(
         'Permiso requerido',
-        'Necesitamos acceso a tu ubicación para registrar tu entrada/salida.'
+        'Necesitamos tu ubicación para registrar la entrada. Volvé a tocar "Marcar Entrada" y elegí "Permitir" con "Ubicación precisa".'
       );
-      return null;
+      return;
     }
-    const location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
-    });
-    return {
-      lat: location.coords.latitude,
-      lon: location.coords.longitude,
-      accuracy: Number.isFinite(location.coords.accuracy ?? NaN) ? location.coords.accuracy : null,
-      mocked: (location as { mocked?: boolean }).mocked === true,
-    };
+    if (motivo === 'servicios_apagados') {
+      Alert.alert('Ubicación apagada', 'La ubicación (GPS) del teléfono está apagada. Encendela y volvé a intentar.', [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Encender',
+          onPress: () => {
+            if (Platform.OS === 'android') {
+              void Location.enableNetworkProviderAsync().catch(() => void Linking.openSettings());
+            } else {
+              void Linking.openSettings();
+            }
+          },
+        },
+      ]);
+      return;
+    }
+    Alert.alert(
+      'Sin señal de ubicación',
+      'No pudimos leer tu ubicación. Acercate a una puerta o ventana, esperá unos segundos y volvé a intentar.'
+    );
   };
 
   /**
@@ -776,7 +869,7 @@ export default function HomeScreen() {
 
   /** Reintenta la cola offline; informa resultados si hubo actividad. */
   const flushQueuedClockIns = useCallback(async (notify: boolean) => {
-    const { sent, rejectedMessages } = await flushClockInQueue(async (item: QueuedClockIn) => {
+    const { sent, rejectedMessages, expired } = await flushClockInQueue(async (item: QueuedClockIn) => {
       const r = await sendClockInToServer({
         latitude: item.latitude,
         longitude: item.longitude,
@@ -785,16 +878,28 @@ export default function HomeScreen() {
         offlineHash: item.offlineHash,
       });
       if (r.kind === 'ok') return { status: 'ok' as const };
+      // Dos toques sin conexión dejan dos marcajes en la cola: el segundo vuelve como
+      // duplicate_open, pero la entrada SÍ está registrada. No es un rechazo para la persona.
+      if (r.kind === 'rejected' && r.reason === 'duplicate_open') return { status: 'ok' as const };
       if (r.kind === 'rejected') return { status: 'rejected' as const, message: r.message };
+      // Sin sesión o sin red: se conserva para el próximo intento (vence a las 4 h).
       return { status: 'network' as const };
     });
-    if (notify && (sent > 0 || rejectedMessages.length > 0)) {
-      const parts: string[] = [];
-      if (sent > 0) parts.push(`${sent} marcaje(s) offline registrados.`);
-      if (rejectedMessages.length > 0) parts.push(`Rechazados: ${rejectedMessages[0]}`);
-      Alert.alert('Marcajes pendientes', parts.join('\n'));
+    // Antes: tras reenviar, la pantalla seguía en "Marcar Entrada" aunque el servidor ya había
+    // registrado la entrada; la persona volvía a tocar y recibía "Marcaje no registrado".
+    if (sent > 0) setStatusReloadKey((k) => k + 1);
+    // Rechazos y vencidos se informan SIEMPRE: antes, en el reenvío silencioso, se descartaban.
+    const parts: string[] = [];
+    if (notify && sent > 0) parts.push(`Tu marcaje guardado sin conexión ya quedó registrado.`);
+    if (rejectedMessages.length > 0) parts.push(`Un marcaje guardado sin conexión fue rechazado: ${rejectedMessages[0]}`);
+    if (expired.length > 0) {
+      const hora = new Date(expired[0].queuedAtIso).toLocaleString('es-NI', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+      parts.push(
+        `Un marcaje guardado sin conexión (${hora}) venció sin poder enviarse. Pedile a RRHH que registre tu hora real.`
+      );
     }
-    return sent;
+    if (parts.length > 0) Alert.alert('Marcajes pendientes', parts.join('\n\n'));
+    return { sent, rejected: rejectedMessages.length, expired: expired.length };
   }, []);
 
   // Puntos de marcaje del colaborador (mismo modelo que el servidor).
@@ -822,12 +927,10 @@ export default function HomeScreen() {
   }, [flushQueuedClockIns]);
 
   const handleClockIn = async () => {
-    if (isPunching) return;
+    if (isPunching || punchingRef.current) return;
+    punchingRef.current = true;
     setIsPunching(true);
     try {
-      const coords = await getCurrentLocation();
-      if (!coords) return;
-
       if (!employeeRecordId) {
         Alert.alert(
           'Expediente requerido',
@@ -841,18 +944,42 @@ export default function HomeScreen() {
         return;
       }
 
+      // Vaciar pendientes ANTES: si un marcaje guardado sin conexión se registra ahora, la persona
+      // ya tiene su entrada y no hay que mandar otra (antes terminaba en "Marcaje no registrado").
+      const previo = await flushQueuedClockIns(false);
+      if (previo.sent > 0) {
+        Alert.alert(
+          'Tu entrada ya quedó registrada',
+          'El marcaje que había quedado guardado sin conexión se acaba de registrar. Actualizamos tu pantalla.'
+        );
+        return;
+      }
+
+      const ubic = await obtenerUbicacionParaEntrada();
+      if (!ubic.ok) {
+        mostrarProblemaUbicacion(ubic.motivo);
+        return;
+      }
+      const coords = ubic.lectura;
+
       // M2 convergencia marcaje: pre-check ADVISORY multi-punto (mismo modelo
       // que el servidor: employee_marking_places). La decisión es del servidor.
       if (markingPoints.length > 0) {
         const nearest = nearestMarkingPoint(markingPoints, coords.lat, coords.lon);
         if (nearest && !nearest.inside) {
           const proceed = await confirmOutsideAdvisory(nearest.point.name, nearest.distanceMeters);
-          if (!proceed) return;
+          if (!proceed) {
+            reportarFalloMarcaje('cliente_cancelo_fuera_de_punto', {
+              lat: coords.lat,
+              lon: coords.lon,
+              accuracy: coords.accuracy,
+              nearestPlace: nearest.point.name,
+              nearestDistance: nearest.distanceMeters,
+            });
+            return;
+          }
         }
       }
-
-      // Vaciar pendientes antes (evita "entrada ya abierta" por un replay posterior).
-      await flushQueuedClockIns(false);
 
       const result = await sendClockInToServer({
         latitude: coords.lat,
@@ -868,6 +995,8 @@ export default function HomeScreen() {
         setActiveClockInAt(new Date().toISOString());
         setActiveMarkingPlace(result.markingPlace);
         setIsOnPause(false);
+        // Hora real del servidor y punto: se releen de la base.
+        setStatusReloadKey((k) => k + 1);
         Alert.alert(
           '¡Éxito!',
           result.markingPlace
@@ -877,7 +1006,38 @@ export default function HomeScreen() {
         return;
       }
 
+      if (result.kind === 'session') {
+        Alert.alert(
+          'Tu sesión venció',
+          'Para marcar, cerrá sesión en Perfil y volvé a entrar con tu usuario. Tu marcaje no se guardó.'
+        );
+        return;
+      }
+
       if (result.kind === 'rejected') {
+        if (result.reason === 'duplicate_open') {
+          // Ya tiene una entrada abierta (doble toque, o la cola ya la registró): no es un error.
+          setStatusReloadKey((k) => k + 1);
+          Alert.alert(
+            'Ya estás marcado',
+            'Ya tenés una entrada abierta. Actualizamos tu pantalla; si no aparece, deslizá hacia abajo para recargar.'
+          );
+          return;
+        }
+        const imprecisa =
+          ubic.permisoAproximado || (coords.accuracy != null && coords.accuracy > PRECISION_ACEPTABLE_M);
+        if (result.reason === 'out_of_range' && imprecisa) {
+          Alert.alert(
+            'Marcaje no registrado',
+            `${result.message}\n\nTu teléfono dio una ubicación aproximada (±${Math.round(coords.accuracy ?? 0)} m). ` +
+              'Activá "Ubicación precisa" para QuantixHR: Ajustes › Aplicaciones › QuantixHR › Permisos › Ubicación.',
+            [
+              { text: 'Cerrar', style: 'cancel' },
+              { text: 'Abrir ajustes', onPress: () => void Linking.openSettings() },
+            ]
+          );
+          return;
+        }
         Alert.alert('Marcaje no registrado', result.message);
         return;
       }
@@ -893,18 +1053,23 @@ export default function HomeScreen() {
       });
       Alert.alert(
         'Sin conexión',
-        'No hay conexión con el servidor. Tu marcaje quedó guardado en el teléfono y se registrará automáticamente al reconectar (con la hora del registro).'
+        'Tu marcaje quedó guardado en el teléfono y se enviará solo cuando vuelva la conexión (hasta 4 horas). ' +
+          'La hora que queda registrada es la del envío: si tarda, avisale a RRHH tu hora real.'
       );
     } catch (err) {
       console.error(err);
+      captureException(err, { area: 'home_clock_in', stage: 'handleClockIn' });
+      reportarFalloMarcaje('cliente_error', { message: errorMessage(err) });
       Alert.alert('Error', 'No se pudo completar el marcaje. Intenta de nuevo.');
     } finally {
+      punchingRef.current = false;
       setIsPunching(false);
     }
   };
 
   const handleClockOut = async () => {
-    if (isPunching) return;
+    if (isPunching || punchingRef.current) return;
+    punchingRef.current = true;
     setIsPunching(true);
     try {
       // Best-effort: si no hay GPS la salida se marca igual. Ver getCurrentLocationForClockOut.
@@ -967,6 +1132,7 @@ export default function HomeScreen() {
             status?: string;
             aplicado?: boolean | null;
             marking_place?: string | null;
+            total_hours?: number | string | null;
           }
         | null
         | undefined;
@@ -1025,20 +1191,30 @@ export default function HomeScreen() {
         return;
       }
 
+      // Horas que la base calculó para esta jornada (total_hours es columna generada). Antes se
+      // mostraba solo "¡Éxito!" y la gente no sabía cuánto le quedó registrado.
+      const horas = Number(updated?.total_hours);
+      const textoHoras =
+        Number.isFinite(horas) && horas >= 0
+          ? `Jornada cerrada: ${Math.floor(horas)} h ${String(Math.round((horas % 1) * 60)).padStart(2, '0')} min.`
+          : '';
+
       if (!coords) {
         Alert.alert(
           'Salida registrada, sin ubicación',
-          'Registramos tu salida y tus horas quedaron guardadas, pero no pudimos leer tu ' +
+          (textoHoras ? `${textoHoras}\n\n` : '') +
+            'Registramos tu salida y tus horas quedaron guardadas, pero no pudimos leer tu ' +
             'ubicación. RRHH va a revisar el marcaje. No perdés tu tiempo trabajado.'
         );
         return;
       }
 
-      Alert.alert('¡Éxito!', 'Tu salida ha sido registrada en el sistema.');
+      Alert.alert('¡Salida registrada!', textoHoras || 'Tu salida ha sido registrada en el sistema.');
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'No se pudo completar el marcaje. Intenta de nuevo.');
     } finally {
+      punchingRef.current = false;
       setIsPunching(false);
     }
   };
@@ -1047,8 +1223,8 @@ export default function HomeScreen() {
     if (isPauseActionLoading || !activeTimeEntryId || !companyId || !employeeRecordId) return;
     setIsPauseActionLoading(true);
     try {
-      const coords = await getCurrentLocation();
-      if (!coords) return;
+      // La ubicación de la pausa es solo referencia: sin GPS la pausa se registra igual.
+      const coords = await getCurrentLocationForClockOut();
 
       const event = action === 'start' ? PAUSE_EVENT_START : PAUSE_EVENT_END;
       const occurred_at = new Date().toISOString();
@@ -1061,7 +1237,7 @@ export default function HomeScreen() {
           source: 'mobile',
           platform: Platform.OS,
           employee_id: employeeRecordId,
-          gps: { lat: coords.lat, lon: coords.lon },
+          ...(coords ? { gps: { lat: coords.lat, lon: coords.lon } } : { sin_ubicacion: true }),
         },
       });
 

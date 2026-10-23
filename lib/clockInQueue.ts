@@ -12,6 +12,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  */
 const QUEUE_KEY = 'quantix.clockInQueue.v1';
 
+/**
+ * Un marcaje encolado se registra con la hora del SERVIDOR al reenviarse, no con la del toque.
+ * Pasadas unas horas ya no representa la entrada real: reenviarlo crearía una jornada fantasma
+ * (p. ej. se abre la app al día siguiente y aparece una entrada de hoy). Más viejo que esto se
+ * descarta y se le avisa a la persona para que pida la corrección a RRHH.
+ */
+export const MAX_EDAD_COLA_MS = 4 * 60 * 60 * 1000;
+
 export type QueuedClockIn = {
   offlineHash: string;
   latitude: number;
@@ -66,16 +74,23 @@ export type FlushSendResult =
  * Devuelve mensajes de rechazo para informar al usuario.
  */
 export async function flushClockInQueue(
-  send: (item: QueuedClockIn) => Promise<FlushSendResult>
-): Promise<{ sent: number; rejectedMessages: string[] }> {
+  send: (item: QueuedClockIn) => Promise<FlushSendResult>,
+  now: number = Date.now()
+): Promise<{ sent: number; rejectedMessages: string[]; expired: QueuedClockIn[] }> {
   const q = await readQueue();
-  if (q.length === 0) return { sent: 0, rejectedMessages: [] };
+  if (q.length === 0) return { sent: 0, rejectedMessages: [], expired: [] };
 
   const keep: QueuedClockIn[] = [];
   const rejectedMessages: string[] = [];
+  const expired: QueuedClockIn[] = [];
   let sent = 0;
 
   for (const item of q) {
+    const edad = now - new Date(item.queuedAtIso).getTime();
+    if (!Number.isFinite(edad) || edad > MAX_EDAD_COLA_MS) {
+      expired.push(item);
+      continue;
+    }
     const r = await send(item);
     if (r.status === 'ok') {
       sent += 1;
@@ -87,5 +102,5 @@ export async function flushClockInQueue(
   }
 
   await writeQueue(keep);
-  return { sent, rejectedMessages };
+  return { sent, rejectedMessages, expired };
 }
