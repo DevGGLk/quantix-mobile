@@ -726,10 +726,58 @@ export default function HomeScreen() {
   }, [refreshProfile, loadHubData, companyId]);
 
   /** Explica por qué no se pudo leer la ubicación de entrada y ofrece el atajo que corresponde. */
+  /**
+   * Reporta al servidor un fallo de marcaje que nunca llegó a clock_in_secure (GPS, permiso,
+   * cancelación). Queda en Asistencia › Intentos de marcaje (antes no quedaba rastro).
+   * Fire-and-forget: si falla, no se le muestra nada a la persona.
+   */
+  const reportarFalloMarcaje = (
+    reason:
+      | 'cliente_permiso_denegado'
+      | 'cliente_permiso_bloqueado'
+      | 'cliente_gps_apagado'
+      | 'cliente_sin_senal'
+      | 'cliente_cancelo_fuera_de_punto'
+      | 'cliente_error',
+    extra: {
+      message?: string;
+      lat?: number;
+      lon?: number;
+      accuracy?: number | null;
+      nearestPlace?: string | null;
+      nearestDistance?: number | null;
+    } = {}
+  ) => {
+    void supabase
+      .rpc('log_clock_in_client_failure', {
+        p_reason: reason,
+        p_message: extra.message ?? null,
+        p_platform: 'mobile',
+        p_app_version: appVersionString(),
+        p_latitude: extra.lat ?? null,
+        p_longitude: extra.lon ?? null,
+        p_accuracy: extra.accuracy ?? null,
+        p_nearest_place: extra.nearestPlace ?? null,
+        p_nearest_distance: extra.nearestDistance ?? null,
+      })
+      .then(({ error }) => {
+        if (error) console.warn('log_clock_in_client_failure:', error.message);
+      });
+  };
+
   const mostrarProblemaUbicacion = (
     motivo: 'permiso_denegado' | 'permiso_bloqueado' | 'servicios_apagados' | 'sin_senal'
   ) => {
     captureException(new Error(`clock_in_ubicacion:${motivo}`), { area: 'home_clock_in', stage: 'ubicacion' });
+    reportarFalloMarcaje(
+      motivo === 'permiso_denegado'
+        ? 'cliente_permiso_denegado'
+        : motivo === 'permiso_bloqueado'
+          ? 'cliente_permiso_bloqueado'
+          : motivo === 'servicios_apagados'
+            ? 'cliente_gps_apagado'
+            : 'cliente_sin_senal'
+    );
     if (motivo === 'permiso_bloqueado') {
       Alert.alert(
         'Ubicación bloqueada',
@@ -920,7 +968,16 @@ export default function HomeScreen() {
         const nearest = nearestMarkingPoint(markingPoints, coords.lat, coords.lon);
         if (nearest && !nearest.inside) {
           const proceed = await confirmOutsideAdvisory(nearest.point.name, nearest.distanceMeters);
-          if (!proceed) return;
+          if (!proceed) {
+            reportarFalloMarcaje('cliente_cancelo_fuera_de_punto', {
+              lat: coords.lat,
+              lon: coords.lon,
+              accuracy: coords.accuracy,
+              nearestPlace: nearest.point.name,
+              nearestDistance: nearest.distanceMeters,
+            });
+            return;
+          }
         }
       }
 
@@ -1002,6 +1059,7 @@ export default function HomeScreen() {
     } catch (err) {
       console.error(err);
       captureException(err, { area: 'home_clock_in', stage: 'handleClockIn' });
+      reportarFalloMarcaje('cliente_error', { message: errorMessage(err) });
       Alert.alert('Error', 'No se pudo completar el marcaje. Intenta de nuevo.');
     } finally {
       punchingRef.current = false;
