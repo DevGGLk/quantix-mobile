@@ -4,6 +4,7 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  MAX_EDAD_COLA_MS,
   enqueueClockIn,
   flushClockInQueue,
   newOfflineHash,
@@ -51,6 +52,25 @@ describe('clockInQueue (cola offline de marcajes)', () => {
     expect(sent).toBe(1);
     expect(rejectedMessages).toEqual(['Fuera de rango']);
     expect(await pendingClockIns()).toBe(1); // solo el de red se conserva
+  });
+
+  it('flush: un marcaje encolado hace más de 4 h vence, no se envía y se informa', async () => {
+    const now = Date.now();
+    const viejo = item({ offlineHash: 'off-viejo', queuedAtIso: new Date(now - MAX_EDAD_COLA_MS - 60_000).toISOString() });
+    const reciente = item({ offlineHash: 'off-reciente', queuedAtIso: new Date(now - 60_000).toISOString() });
+    await enqueueClockIn(viejo);
+    await enqueueClockIn(reciente);
+
+    const enviados: string[] = [];
+    const { sent, expired } = await flushClockInQueue(async (i) => {
+      enviados.push(i.offlineHash);
+      return { status: 'ok' };
+    }, now);
+
+    expect(enviados).toEqual(['off-reciente']);
+    expect(sent).toBe(1);
+    expect(expired.map((e) => e.offlineHash)).toEqual(['off-viejo']);
+    expect(await pendingClockIns()).toBe(0);
   });
 
   it('hashes offline únicos', () => {
