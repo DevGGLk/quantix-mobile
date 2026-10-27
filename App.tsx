@@ -14,6 +14,9 @@ import OnboardingScreen from './screens/OnboardingScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { ThemeProvider, useTheme } from './theme';
 import { supabase } from './lib/supabase';
+// Registra la tarea de ubicación en segundo plano al arrancar: Android la despierta
+// aunque no haya ninguna pantalla montada.
+import './lib/backgroundLocation';
 import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import ServiciosScreen from './screens/ServiciosScreen';

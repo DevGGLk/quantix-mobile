@@ -22,6 +22,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { fetchJobTitleFunctionsBlock } from '../lib/api';
 import { getEmployeePhotoPublicUrl } from '../lib/employeePhoto';
+import { stopBackgroundTracking } from '../lib/backgroundLocation';
 
 // Paleta VIP Zone alineada al portal web QuantixHR
 const VIP = {
@@ -328,6 +329,8 @@ export default function PerfilScreen() {
 
   const handleLogout = async () => {
     try {
+      // Antes de cerrar sesión: el servicio de ubicación no debe seguir con otra cuenta.
+      await stopBackgroundTracking();
       const { error: signOutErr } = await supabase.auth.signOut();
       if (signOutErr) throw signOutErr;
     } catch (err) {
