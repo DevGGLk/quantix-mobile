@@ -305,6 +305,11 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * Consentimiento de geolocalización firmado (gps_consents, Ley 787). null = sin cargar.
+   * Sin él el servidor descarta toda ubicación, así que la app ni la pide.
+   */
+  const [gpsConsentSigned, setGpsConsentSigned] = useState<boolean | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -543,8 +548,36 @@ export default function HomeScreen() {
    * `requires_live_tracking` se expone en el expediente; el envío exige consentimiento explícito (`is_gps_tracking_enabled`).
    * El intervalo respeta `gps_refresh_rate_seconds` del expediente con clamp.
    */
+  // Se vuelve a leer al marcar entrada: puede haber firmado en Mi Portal mientras tanto.
   useEffect(() => {
-    const trackingOk = employeeGpsConsent;
+    if (!employeeRecordId || !employeeGpsConsent) {
+      setGpsConsentSigned(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from('gps_consents')
+        .select('signed_at, is_grandfathered')
+        .eq('employee_id', employeeRecordId)
+        .is('revoked_at', null);
+      if (cancelled) return;
+      if (error) {
+        // Ante un error de lectura no se bloquea: el servidor igual lo exige.
+        console.warn('GPS consentimiento:', error.message);
+        setGpsConsentSigned(true);
+        return;
+      }
+      const rows = (data ?? []) as { signed_at: string | null; is_grandfathered: boolean | null }[];
+      setGpsConsentSigned(rows.some((r) => r.signed_at != null || r.is_grandfathered === true));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeRecordId, employeeGpsConsent, isClockedIn]);
+
+  useEffect(() => {
+    const trackingOk = employeeGpsConsent && gpsConsentSigned === true;
     const canSend =
       isOperativeEmployee &&
       trackingOk &&
@@ -590,6 +623,8 @@ export default function HomeScreen() {
           speed != null && Number.isFinite(speed) && !Number.isNaN(speed) ? speed : null;
 
         const createdAt = new Date().toISOString();
+        const finite = (v: number | null | undefined) =>
+          v != null && Number.isFinite(v) && !Number.isNaN(v) ? v : null;
         const payload: Record<string, unknown> = {
           company_id: companyId,
           employee_id: employeeRecordId,
@@ -597,6 +632,14 @@ export default function HomeScreen() {
           longitude,
           geog: `SRID=4326;POINT(${longitude} ${latitude})`,
           created_at: createdAt,
+          // Antes se descartaban: sin ellos no funcionaban la detección de GPS falso
+          // ni el filtro de lecturas imprecisas.
+          accuracy_meters: finite(pos.coords.accuracy),
+          altitude: finite(pos.coords.altitude),
+          // -1 = rumbo desconocido (iOS).
+          heading: finite(pos.coords.heading) != null && (pos.coords.heading as number) >= 0 ? pos.coords.heading : null,
+          // `mocked` solo existe en Android; en iOS queda null (desconocido), no false.
+          is_mock_location: typeof pos.mocked === 'boolean' ? pos.mocked : null,
         };
         if (speedOk != null) {
           payload.velocity = speedOk;
@@ -631,6 +674,7 @@ export default function HomeScreen() {
   }, [
     isOperativeEmployee,
     employeeGpsConsent,
+    gpsConsentSigned,
     employee?.gps_refresh_rate_seconds,
     isClockedIn,
     activeTimeEntryId,
@@ -1347,6 +1391,15 @@ export default function HomeScreen() {
           {isClockedIn && activeMarkingPlace ? (
             <Text style={styles.markingPlaceLabel}>Marcaste en {activeMarkingPlace}</Text>
           ) : null}
+          {employeeGpsConsent && gpsConsentSigned === false ? (
+            <View style={styles.gpsConsentNotice}>
+              <Ionicons name="location-outline" size={18} color={theme.warning} />
+              <Text style={styles.gpsConsentNoticeText}>
+                Tu empresa activó el rastreo de ubicación durante la jornada. No se envía nada hasta que
+                aceptes el consentimiento en Mi Portal (versión web).
+              </Text>
+            </View>
+          ) : null}
           {!isClockedIn ? (
             <TouchableOpacity
               style={[
@@ -1694,6 +1747,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 12,
     paddingHorizontal: 8,
+  },
+  gpsConsentNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: theme.warning,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  gpsConsentNoticeText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: theme.textPrimary,
   },
   hubSection: {
     marginBottom: 24,
