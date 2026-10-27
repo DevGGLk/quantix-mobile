@@ -3,7 +3,7 @@
     "name": "Quantix HR",
     "slug": "quantix-hr",
     "scheme": "quantixhr",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -45,6 +45,16 @@
           "url": "https://sentry.io/",
           "organization": "inversiones-ggl",
           "project": "quantix-mobile"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Quantix HR usa tu ubicación para validar tus marcajes de entrada y salida.",
+          "locationAlwaysAndWhenInUsePermission": "Si tu empresa activó el rastreo y firmaste el consentimiento, Quantix HR envía tu ubicación solo entre tu entrada y tu salida, también con el teléfono bloqueado.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": false
         }
       ]
     ],

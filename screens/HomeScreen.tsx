@@ -26,6 +26,13 @@ import { CongratsBanner } from '../components/CongratsBanner';
 import { WorkedTimeChronometer } from '../components/WorkedTimeChronometer';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
+import {
+  buildLocationPayload,
+  getBackgroundPermission,
+  requestBackgroundPermission,
+  startBackgroundTracking,
+  stopBackgroundTracking,
+} from '../lib/backgroundLocation';
 import { theme } from '../lib/theme';
 import { parseBranchGeo, type BranchGeo } from '../lib/geo';
 import { useAuth } from '../lib/AuthContext';
@@ -310,6 +317,8 @@ export default function HomeScreen() {
    * Sin él el servidor descarta toda ubicación, así que la app ni la pide.
    */
   const [gpsConsentSigned, setGpsConsentSigned] = useState<boolean | null>(null);
+  /** El aviso de «Permitir todo el tiempo» se muestra una vez por sesión de la app. */
+  const bgPermissionAskedRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -605,8 +614,23 @@ export default function HomeScreen() {
         clearInterval(gpsIntervalRef.current);
         gpsIntervalRef.current = null;
       }
+      // Solo se detiene el servicio de segundo plano cuando hay certeza (salida marcada,
+      // rastreo apagado o sin consentimiento). Mientras carga, canSend es false un
+      // instante y detenerlo ahí cortaba el servicio en cada apertura de la app.
+      const certezaDeParar =
+        (!isLoadingClockStatus && !isClockedIn) ||
+        (!isLoadingPerfil && !employeeGpsConsent) ||
+        gpsConsentSigned === false;
+      if (certezaDeParar) void stopBackgroundTracking();
       return;
     }
+
+    let cancelled = false;
+    const cid = companyId as string;
+    const eid = employeeRecordId as string;
+    const refreshSeconds = Math.round(
+      resolveGpsPollingIntervalMs(employee?.gps_refresh_rate_seconds ?? undefined) / 1000,
+    );
 
     const sendLiveLocation = async () => {
       const { status } = await Location.getForegroundPermissionsAsync();
@@ -616,35 +640,7 @@ export default function HomeScreen() {
         const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        const latitude = pos.coords.latitude;
-        const longitude = pos.coords.longitude;
-        const speed = pos.coords.speed;
-        const speedOk =
-          speed != null && Number.isFinite(speed) && !Number.isNaN(speed) ? speed : null;
-
-        const createdAt = new Date().toISOString();
-        const finite = (v: number | null | undefined) =>
-          v != null && Number.isFinite(v) && !Number.isNaN(v) ? v : null;
-        const payload: Record<string, unknown> = {
-          company_id: companyId,
-          employee_id: employeeRecordId,
-          latitude,
-          longitude,
-          geog: `SRID=4326;POINT(${longitude} ${latitude})`,
-          created_at: createdAt,
-          // Antes se descartaban: sin ellos no funcionaban la detección de GPS falso
-          // ni el filtro de lecturas imprecisas.
-          accuracy_meters: finite(pos.coords.accuracy),
-          altitude: finite(pos.coords.altitude),
-          // -1 = rumbo desconocido (iOS).
-          heading: finite(pos.coords.heading) != null && (pos.coords.heading as number) >= 0 ? pos.coords.heading : null,
-          // `mocked` solo existe en Android; en iOS queda null (desconocido), no false.
-          is_mock_location: typeof pos.mocked === 'boolean' ? pos.mocked : null,
-        };
-        if (speedOk != null) {
-          payload.velocity = speedOk;
-        }
-
+        const payload = await buildLocationPayload(pos, cid, eid);
         const { error } = await supabase.from('live_locations').upsert(payload, {
           onConflict: 'employee_id',
         });
@@ -658,18 +654,61 @@ export default function HomeScreen() {
       }
     };
 
-    void sendLiveLocation();
+    const startForegroundInterval = () => {
+      if (gpsIntervalRef.current) return;
+      gpsIntervalRef.current = setInterval(() => {
+        void sendLiveLocation();
+      }, refreshSeconds * 1000);
+    };
 
-    const ms = resolveGpsPollingIntervalMs(employee?.gps_refresh_rate_seconds ?? undefined);
-    gpsIntervalRef.current = setInterval(() => {
-      void sendLiveLocation();
-    }, ms);
-
-    return () => {
+    const stopForegroundInterval = () => {
       if (gpsIntervalRef.current) {
         clearInterval(gpsIntervalRef.current);
         gpsIntervalRef.current = null;
       }
+    };
+
+    // Un punto inmediato para que el mapa lo muestre ya, sin esperar al servicio.
+    void sendLiveLocation();
+
+    void (async () => {
+      const startBg = () => startBackgroundTracking({ companyId: cid, employeeId: eid, refreshSeconds });
+      if (await startBg()) {
+        if (!cancelled) stopForegroundInterval();
+        return;
+      }
+      if (cancelled) return;
+      // Sin «Permitir todo el tiempo»: se sigue enviando con la app abierta.
+      startForegroundInterval();
+
+      if (bgPermissionAskedRef.current) return;
+      if ((await getBackgroundPermission()) !== 'denied' || cancelled) return;
+      bgPermissionAskedRef.current = true;
+      Alert.alert(
+        'Ubicación durante la jornada',
+        'Tu empresa activó el rastreo durante la jornada y firmaste el consentimiento. Para que ' +
+          'funcione con el teléfono bloqueado, en la siguiente pantalla elegí «Permitir todo el ' +
+          'tiempo». Solo se envía entre tu entrada y tu salida; verás una notificación fija ' +
+          'mientras esté activo.',
+        [
+          { text: 'Ahora no', style: 'cancel' },
+          {
+            text: 'Continuar',
+            onPress: () => {
+              void (async () => {
+                if ((await requestBackgroundPermission()) === 'granted' && (await startBg())) {
+                  stopForegroundInterval();
+                }
+              })();
+            },
+          },
+        ],
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+      stopForegroundInterval();
     };
   }, [
     isOperativeEmployee,
@@ -677,6 +716,8 @@ export default function HomeScreen() {
     gpsConsentSigned,
     employee?.gps_refresh_rate_seconds,
     isClockedIn,
+    isLoadingClockStatus,
+    isLoadingPerfil,
     activeTimeEntryId,
     companyId,
     employeeRecordId,
