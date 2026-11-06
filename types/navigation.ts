@@ -50,7 +50,8 @@ export type ActiveLoanRouteParam = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Turnos: undefined;
+  /** `weekStart` (lunes YYYY-MM-DD) abre esa semana, p. ej. al tocar «Tu horario ya está publicado». */
+  Turnos: { weekStart?: string } | undefined;
   Jay: undefined;
   Servicios: undefined;
   Perfil: undefined;

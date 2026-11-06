@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRoute, type RouteProp } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -8,12 +8,14 @@ import {
   FlatList,
   Platform,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { supabase } from '../lib/supabase';
 import { useTheme, type Palette } from '../theme';
 import { useAuth } from '../lib/AuthContext';
+import type { MainTabParamList } from '../types/navigation';
 
 type Turno = {
   id: string;
@@ -54,6 +56,24 @@ function getCalendarWeekRangeYmd(ref: Date): { start: string; end: string } {
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   return { start: formatLocalYmd(monday), end: formatLocalYmd(sunday) };
+}
+
+/** Suma días a un YYYY-MM-DD (al mediodía, para no cruzar de día por zona). */
+function addDaysYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return formatLocalYmd(d);
+}
+
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/** «10 – 16 nov» o «29 dic – 4 ene». */
+function weekRangeLabel(startYmd: string): string {
+  const a = new Date(`${startYmd}T12:00:00`);
+  const b = new Date(`${addDaysYmd(startYmd, 6)}T12:00:00`);
+  return a.getMonth() === b.getMonth()
+    ? `${a.getDate()} – ${b.getDate()} ${MESES[b.getMonth()]}`
+    : `${a.getDate()} ${MESES[a.getMonth()]} – ${b.getDate()} ${MESES[b.getMonth()]}`;
 }
 
 /** `time` / fragmento ISO → "HH:mm" para la tarjeta. */
@@ -107,6 +127,19 @@ export default function TurnosScreen() {
   const { session, employee } = useAuth();
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
+  const route = useRoute<RouteProp<MainTabParamList, 'Turnos'>>();
+
+  const currentWeekStart = getCalendarWeekRangeYmd(new Date()).start;
+  const [weekStart, setWeekStart] = useState<string>(currentWeekStart);
+
+  // El aviso «Tu horario ya está publicado» trae la semana publicada (casi
+  // siempre la siguiente): se abre esa, no la actual.
+  const weekStartParam = route.params?.weekStart;
+  useEffect(() => {
+    if (weekStartParam && /^\d{4}-\d{2}-\d{2}$/.test(weekStartParam)) {
+      setWeekStart(getCalendarWeekRangeYmd(new Date(`${weekStartParam}T12:00:00`)).start);
+    }
+  }, [weekStartParam]);
 
   // Recarga cada vez que se entra a la pestaña (p. ej. al tocar el aviso
   // «Tu horario ya está publicado»), no solo al montar.
@@ -123,7 +156,7 @@ export default function TurnosScreen() {
           return;
         }
 
-        const { start: weekStart, end: weekEnd } = getCalendarWeekRangeYmd(new Date());
+        const weekEnd = addDaysYmd(weekStart, 6);
 
         // `schedules` es la tabla viva del planificador. `employee_shifts` es
         // legacy: nadie la escribe desde mayo 2026 y dejaba la pantalla vacía.
@@ -223,7 +256,7 @@ export default function TurnosScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, employee?.id, employee?.company_id]));
+  }, [session?.user?.id, employee?.id, employee?.company_id, weekStart]));
 
   const renderItem = ({ item }: { item: Turno }) => (
     <View style={[styles.card, item.isToday && styles.cardToday]}>
@@ -261,6 +294,36 @@ export default function TurnosScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Mi Horario de la Semana</Text>
+        <View style={styles.weekNav}>
+          <TouchableOpacity
+            style={styles.weekArrow}
+            onPress={() => setWeekStart((w) => addDaysYmd(w, -7))}
+            accessibilityRole="button"
+            accessibilityLabel="Semana anterior"
+          >
+            <Ionicons name="chevron-back" size={20} color={palette.text.primary} />
+          </TouchableOpacity>
+          <View style={styles.weekLabelWrap}>
+            <Text style={styles.weekLabel}>{weekRangeLabel(weekStart)}</Text>
+            {weekStart === currentWeekStart ? (
+              <Text style={styles.weekHint}>Esta semana</Text>
+            ) : weekStart === addDaysYmd(currentWeekStart, 7) ? (
+              <Text style={styles.weekHint}>Próxima semana</Text>
+            ) : (
+              <TouchableOpacity onPress={() => setWeekStart(currentWeekStart)} accessibilityRole="button">
+                <Text style={[styles.weekHint, styles.weekHintLink]}>Volver a esta semana</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.weekArrow}
+            onPress={() => setWeekStart((w) => addDaysYmd(w, 7))}
+            accessibilityRole="button"
+            accessibilityLabel="Semana siguiente"
+          >
+            <Ionicons name="chevron-forward" size={20} color={palette.text.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {isLoading ? (
@@ -271,9 +334,10 @@ export default function TurnosScreen() {
       ) : turnos.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="calendar-clear-outline" size={64} color={palette.text.tertiary} />
-          <Text style={styles.emptyTitle}>No tienes turnos programados</Text>
+          <Text style={styles.emptyTitle}>No tienes turnos publicados</Text>
           <Text style={styles.emptyText}>
-            No tienes turnos programados en este momento. ¡Disfruta tu descanso!
+            No hay turnos publicados para esta semana. Si te toca trabajar, puede que tu jefe aún no
+            publique el horario: te avisaremos cuando lo haga.
           </Text>
         </View>
       ) : (
@@ -304,6 +368,42 @@ const makeStyles = (c: Palette) =>
       fontSize: 24,
       fontWeight: '800',
       color: c.text.primary,
+    },
+    weekNav: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 12,
+      paddingVertical: 6,
+      paddingHorizontal: 6,
+      borderRadius: 14,
+      backgroundColor: c.surface.card,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    weekArrow: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    weekLabelWrap: {
+      alignItems: 'center',
+    },
+    weekLabel: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: c.text.primary,
+    },
+    weekHint: {
+      marginTop: 2,
+      fontSize: 12,
+      fontWeight: '600',
+      color: c.text.secondary,
+    },
+    weekHintLink: {
+      color: c.brand.base,
     },
     loading: {
       flex: 1,
