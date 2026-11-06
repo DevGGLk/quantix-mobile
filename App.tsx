@@ -62,13 +62,19 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
+type DestinoAviso = { tab: 'Turnos'; params?: { weekStart?: string } };
+
 /**
  * Pestaña a abrir al tocar un push, según `data.category` (lo manda
  * /api/cron/notifications-dispatch). null = solo abrir la app.
+ * `turnos_publicados` trae `week_start`: se abre esa semana, que casi siempre
+ * es la siguiente y no la actual.
  */
-function tabParaAviso(data: unknown): keyof MainTabParamList | null {
-  const category = (data as { category?: unknown } | null)?.category;
-  return category === 'turnos_publicados' ? 'Turnos' : null;
+function destinoParaAviso(data: unknown): DestinoAviso | null {
+  const d = data as { category?: unknown; week_start?: unknown } | null;
+  if (d?.category !== 'turnos_publicados') return null;
+  const ws = typeof d.week_start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.week_start) ? d.week_start : undefined;
+  return { tab: 'Turnos', params: ws ? { weekStart: ws } : undefined };
 }
 
 const TAB_ICONS = {
@@ -203,24 +209,24 @@ function AppInner() {
 
   // Tocar un push abre su pestaña. Si la navegación aún no está montada
   // (arranque en frío, login, onboarding) queda pendiente hasta onReady.
-  const pendingTab = useRef<keyof MainTabParamList | null>(null);
-  const irATab = useCallback((tab: keyof MainTabParamList) => {
-    if (navigationRef.isReady()) navigationRef.navigate('MainTabs', { screen: tab });
-    else pendingTab.current = tab;
+  const pendingTab = useRef<DestinoAviso | null>(null);
+  const irATab = useCallback((destino: DestinoAviso) => {
+    if (navigationRef.isReady()) navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
+    else pendingTab.current = destino;
   }, []);
 
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
-      const tab = tabParaAviso(resp.notification.request.content.data);
-      if (tab) irATab(tab);
+      const destino = destinoParaAviso(resp.notification.request.content.data);
+      if (destino) irATab(destino);
     });
     // App abierta desde un push estando cerrada.
     void (async () => {
       try {
         const resp = await Notifications.getLastNotificationResponseAsync();
-        const tab = resp ? tabParaAviso(resp.notification.request.content.data) : null;
-        if (tab) {
-          irATab(tab);
+        const destino = resp ? destinoParaAviso(resp.notification.request.content.data) : null;
+        if (destino) {
+          irATab(destino);
           // Si no, se repetiría en cada arranque.
           await Notifications.clearLastNotificationResponseAsync();
         }
@@ -380,10 +386,10 @@ function AppInner() {
           <NavigationContainer
             ref={navigationRef}
             onReady={() => {
-              const tab = pendingTab.current;
-              if (tab) {
+              const destino = pendingTab.current;
+              if (destino) {
                 pendingTab.current = null;
-                navigationRef.navigate('MainTabs', { screen: tab });
+                navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
               }
             }}
           >
