@@ -1,4 +1,4 @@
-import type { CompositeNavigationProp } from '@react-navigation/native';
+import type { CompositeNavigationProp, NavigatorScreenParams } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -57,7 +57,8 @@ export type MainTabParamList = {
 };
 
 export type RootStackParamList = {
-  MainTabs: undefined;
+  /** `{ screen }` abre una pestaña concreta (p. ej. al tocar un push). */
+  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   Reglamento: undefined;
   MisActivos: undefined;
   NuevaSolicitud: undefined;

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -107,7 +108,9 @@ export default function TurnosScreen() {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
 
-  useEffect(() => {
+  // Recarga cada vez que se entra a la pestaña (p. ej. al tocar el aviso
+  // «Tu horario ya está publicado»), no solo al montar.
+  useFocusEffect(useCallback(() => {
     let isMounted = true;
 
     async function load() {
@@ -130,7 +133,8 @@ export default function TurnosScreen() {
             'id, business_date, is_day_off, start_time, end_time, status, shift_templates(name, start_time, end_time, category, is_working_day), branches(name)'
           )
           .eq('employee_id', employeeId)
-          .or('status.is.null,status.neq.archived')
+          // Solo lo publicado: los borradores del planificador aún no son horario.
+          .eq('status', 'published')
           .gte('business_date', weekStart)
           .lte('business_date', weekEnd)
           .order('business_date', { ascending: true })
@@ -219,7 +223,7 @@ export default function TurnosScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, employee?.id, employee?.company_id]);
+  }, [session?.user?.id, employee?.id, employee?.company_id]));
 
   const renderItem = ({ item }: { item: Turno }) => (
     <View style={[styles.card, item.isToday && styles.cardToday]}>
@@ -228,14 +232,10 @@ export default function TurnosScreen() {
           <Ionicons name="calendar-outline" size={18} color={palette.brand.base} />
           <Text style={styles.dateText}>{item.fecha}</Text>
         </View>
-        {/* Solo se muestra «Confirmado». El planificador todavía no tiene
-            paso de publicar (todo nace en borrador), y un chip «Borrador» en
-            cada turno haría dudar al colaborador de un horario que sí vale. */}
-        {item.estadoRaw?.toLowerCase() === 'published' && (
-          <View style={[styles.statusChip, styles.statusChipSuccess]}>
-            <Text style={[styles.statusText, styles.statusTextSuccess]}>{item.estado}</Text>
-          </View>
-        )}
+        {/* Todo lo que llega aquí está publicado («Confirmado»). */}
+        <View style={[styles.statusChip, styles.statusChipSuccess]}>
+          <Text style={[styles.statusText, styles.statusTextSuccess]}>{item.estado}</Text>
+        </View>
       </View>
 
       <View style={styles.cardBody}>

@@ -1,7 +1,8 @@
-import React, { useEffect, useCallback, useMemo, useState } from 'react';
+import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -59,6 +60,16 @@ type OnboardingGateState = 'loading' | 'onboarding' | 'app';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
+/**
+ * Pestaña a abrir al tocar un push, según `data.category` (lo manda
+ * /api/cron/notifications-dispatch). null = solo abrir la app.
+ */
+function tabParaAviso(data: unknown): keyof MainTabParamList | null {
+  const category = (data as { category?: unknown } | null)?.category;
+  return category === 'turnos_publicados' ? 'Turnos' : null;
+}
 
 const TAB_ICONS = {
   Home: { active: 'home', inactive: 'home-outline' },
@@ -189,6 +200,36 @@ function MainTabs() {
 function AppInner() {
   const { session, isLoading, employee, isOperativeEmployee } = useAuth();
   const [onboardingGate, setOnboardingGate] = useState<OnboardingGateState>('loading');
+
+  // Tocar un push abre su pestaña. Si la navegación aún no está montada
+  // (arranque en frío, login, onboarding) queda pendiente hasta onReady.
+  const pendingTab = useRef<keyof MainTabParamList | null>(null);
+  const irATab = useCallback((tab: keyof MainTabParamList) => {
+    if (navigationRef.isReady()) navigationRef.navigate('MainTabs', { screen: tab });
+    else pendingTab.current = tab;
+  }, []);
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
+      const tab = tabParaAviso(resp.notification.request.content.data);
+      if (tab) irATab(tab);
+    });
+    // App abierta desde un push estando cerrada.
+    void (async () => {
+      try {
+        const resp = await Notifications.getLastNotificationResponseAsync();
+        const tab = resp ? tabParaAviso(resp.notification.request.content.data) : null;
+        if (tab) {
+          irATab(tab);
+          // Si no, se repetiría en cada arranque.
+          await Notifications.clearLastNotificationResponseAsync();
+        }
+      } catch {
+        // sin permiso de notificaciones: nada que abrir
+      }
+    })();
+    return () => sub.remove();
+  }, [irATab]);
 
   // M2 convergencia marcaje: buscar y aplicar OTA al arrancar, para que
   // correcciones de lógica (p. ej. geocercas) lleguen sin pasar por tiendas.
@@ -336,7 +377,16 @@ function AppInner() {
       <AuthRecordsBannerBar />
       <OnboardingGateContext.Provider value={onboardingGateValue}>
         <View style={{ flex: 1, backgroundColor: theme.background }}>
-          <NavigationContainer>
+          <NavigationContainer
+            ref={navigationRef}
+            onReady={() => {
+              const tab = pendingTab.current;
+              if (tab) {
+                pendingTab.current = null;
+                navigationRef.navigate('MainTabs', { screen: tab });
+              }
+            }}
+          >
           <Stack.Navigator>
             <Stack.Screen
               name="MainTabs"
