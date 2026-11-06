@@ -63,6 +63,22 @@ function formatShiftClock(t: string | null | undefined): string {
   return s.slice(0, 5);
 }
 
+/**
+ * Snapshot `schedules.start_time`/`end_time` (timestamptz) → "HH:mm" en
+ * America/Managua. Es la hora congelada al asignar el turno: si RRHH edita la
+ * plantilla después, el turno ya asignado no cambia. Nicaragua no tiene horario
+ * de verano (UTC-6 fijo), así que no dependemos de Intl/timeZone en Hermes.
+ */
+function snapshotToManaguaClock(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  const ms = new Date(ts).getTime();
+  if (Number.isNaN(ms)) return null;
+  const local = new Date(ms - 6 * 60 * 60 * 1000);
+  const hh = String(local.getUTCHours()).padStart(2, '0');
+  const mm = String(local.getUTCMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 function pickEmbedded<T extends Record<string, unknown>>(raw: unknown): T | null {
   if (raw == null) return null;
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -106,15 +122,19 @@ export default function TurnosScreen() {
 
         const { start: weekStart, end: weekEnd } = getCalendarWeekRangeYmd(new Date());
 
+        // `schedules` es la tabla viva del planificador. `employee_shifts` es
+        // legacy: nadie la escribe desde mayo 2026 y dejaba la pantalla vacía.
         let q = supabase
-          .from('employee_shifts')
+          .from('schedules')
           .select(
-            'id, assigned_date, is_day_off, shift_templates(name, start_time, end_time, category), branches(name)'
+            'id, business_date, is_day_off, start_time, end_time, status, shift_templates(name, start_time, end_time, category, is_working_day), branches(name)'
           )
           .eq('employee_id', employeeId)
-          .gte('assigned_date', weekStart)
-          .lte('assigned_date', weekEnd)
-          .order('assigned_date', { ascending: true });
+          .or('status.is.null,status.neq.archived')
+          .gte('business_date', weekStart)
+          .lte('business_date', weekEnd)
+          .order('business_date', { ascending: true })
+          .order('start_time', { ascending: true });
 
         const cid = employee?.company_id?.trim();
         if (cid) q = q.eq('company_id', cid);
@@ -128,7 +148,7 @@ export default function TurnosScreen() {
         const todayYmd = formatLocalYmd(new Date());
         const mapped: Turno[] = (data ?? []).map((row: Record<string, unknown>) => {
           const assigned =
-            typeof row.assigned_date === 'string' ? row.assigned_date.slice(0, 10) : '';
+            typeof row.business_date === 'string' ? row.business_date.slice(0, 10) : '';
           const dateObj =
             assigned && /^\d{4}-\d{2}-\d{2}$/.test(assigned)
               ? new Date(`${assigned}T12:00:00`)
@@ -139,6 +159,7 @@ export default function TurnosScreen() {
             start_time?: string | null;
             end_time?: string | null;
             category?: string | null;
+            is_working_day?: boolean | null;
           }>(row.shift_templates);
 
           const br = pickEmbedded<{ name?: string | null }>(row.branches);
@@ -153,12 +174,18 @@ export default function TurnosScreen() {
           const statusRaw = row.status != null ? String(row.status) : '';
           const status = mapScheduleStatus(statusRaw);
 
-          const entrada = isDayOff
-            ? 'Día Libre'
-            : formatShiftClock(tpl?.start_time ?? null);
-          const salida = isDayOff
-            ? 'Día Libre'
-            : formatShiftClock(tpl?.end_time ?? null);
+          // Estatus de RRHH (vacaciones, subsidio, permiso…) llegan como
+          // plantilla no laborable: se muestra el nombre, no una hora.
+          const noLaborable = !isDayOff && tpl?.is_working_day === false;
+          const etiquetaSinHora = isDayOff ? 'Día Libre' : noLaborable ? templateName || 'Ausencia' : null;
+
+          // Hora congelada del turno; la plantilla viva solo como respaldo legacy.
+          const entrada =
+            etiquetaSinHora ??
+            (snapshotToManaguaClock(row.start_time as string | null) ?? formatShiftClock(tpl?.start_time ?? null));
+          const salida =
+            etiquetaSinHora ??
+            (snapshotToManaguaClock(row.end_time as string | null) ?? formatShiftClock(tpl?.end_time ?? null));
 
           return {
             id: String(row.id ?? Math.random()),
@@ -201,23 +228,14 @@ export default function TurnosScreen() {
           <Ionicons name="calendar-outline" size={18} color={palette.brand.base} />
           <Text style={styles.dateText}>{item.fecha}</Text>
         </View>
-        <View
-          style={[
-            styles.statusChip,
-            item.estadoRaw?.toLowerCase() === 'published' && styles.statusChipSuccess,
-            item.estadoRaw?.toLowerCase() === 'draft' && styles.statusChipWarning,
-          ]}
-        >
-          <Text
-            style={[
-              styles.statusText,
-              item.estadoRaw?.toLowerCase() === 'published' && styles.statusTextSuccess,
-              item.estadoRaw?.toLowerCase() === 'draft' && styles.statusTextWarning,
-            ]}
-          >
-            {item.estado}
-          </Text>
-        </View>
+        {/* Solo se muestra «Confirmado». El planificador todavía no tiene
+            paso de publicar (todo nace en borrador), y un chip «Borrador» en
+            cada turno haría dudar al colaborador de un horario que sí vale. */}
+        {item.estadoRaw?.toLowerCase() === 'published' && (
+          <View style={[styles.statusChip, styles.statusChipSuccess]}>
+            <Text style={[styles.statusText, styles.statusTextSuccess]}>{item.estado}</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.cardBody}>
