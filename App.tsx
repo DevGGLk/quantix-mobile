@@ -72,7 +72,8 @@ type DestinoAviso = { tab: 'Turnos'; params?: { weekStart?: string } };
  */
 function destinoParaAviso(data: unknown): DestinoAviso | null {
   const d = data as { category?: unknown; week_start?: unknown } | null;
-  if (d?.category !== 'turnos_publicados') return null;
+  // Publicación de semana, cambios de turno y turnos abiertos abren la pestaña Turnos.
+  if (d?.category !== 'turnos_publicados' && d?.category !== 'cambio_turno' && d?.category !== 'turno_abierto') return null;
   const ws = typeof d.week_start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.week_start) ? d.week_start : undefined;
   return { tab: 'Turnos', params: ws ? { weekStart: ws } : undefined };
 }

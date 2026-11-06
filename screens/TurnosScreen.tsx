@@ -16,6 +16,13 @@ import { supabase } from '../lib/supabase';
 import { useTheme, type Palette } from '../theme';
 import { useAuth } from '../lib/AuthContext';
 import type { MainTabParamList } from '../types/navigation';
+import {
+  AckBanner,
+  AvailabilityModal,
+  OpenShiftsSection,
+  SwapRequestModal,
+  SwapRequestsSection,
+} from '../components/TurnosAutoservicio';
 
 type Turno = {
   id: string;
@@ -27,6 +34,10 @@ type Turno = {
   estado: string; // etiqueta para UI
   estadoRaw?: string; // valor crudo desde BD (enum)
   isToday?: boolean;
+  fechaYmd: string;
+  /** Turno de trabajo (no día libre ni ausencia): se puede pedir cambio. */
+  trabajo: boolean;
+  publishedAt: string | null;
 };
 
 function toSpanishDayLabel(date: Date) {
@@ -124,6 +135,11 @@ function mapScheduleStatus(raw?: string | null) {
 export default function TurnosScreen() {
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  /** Sube cada vez que algo cambia (acuse, pedido, respuesta) para recargar secciones. */
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [ackAt, setAckAt] = useState<string | null>(null);
+  const [swapFor, setSwapFor] = useState<{ date: string; label: string } | null>(null);
+  const [showAvail, setShowAvail] = useState(false);
   const { session, employee } = useAuth();
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
@@ -163,7 +179,7 @@ export default function TurnosScreen() {
         let q = supabase
           .from('schedules')
           .select(
-            'id, business_date, is_day_off, start_time, end_time, status, shift_templates(name, start_time, end_time, category, is_working_day), branches(name)'
+            'id, business_date, is_day_off, start_time, end_time, status, published_at, shift_templates(name, start_time, end_time, category, is_working_day), branches(name)'
           )
           .eq('employee_id', employeeId)
           // Solo lo publicado: los borradores del planificador aún no son horario.
@@ -234,10 +250,24 @@ export default function TurnosScreen() {
             estado: status.label,
             estadoRaw: statusRaw,
             isToday: assigned === todayYmd,
+            fechaYmd: assigned,
+            trabajo: !isDayOff && !noLaborable && row.start_time != null,
+            publishedAt: (row.published_at as string | null) ?? null,
           };
         });
 
-        if (isMounted) setTurnos(mapped);
+        // Acuse de la semana (si se republicó después, hay que volver a confirmarla).
+        const { data: ack } = await supabase
+          .from('schedule_acknowledgments')
+          .select('acknowledged_at')
+          .eq('employee_id', employeeId)
+          .eq('week_start', weekStart)
+          .maybeSingle();
+
+        if (isMounted) {
+          setTurnos(mapped);
+          setAckAt((ack as { acknowledged_at?: string } | null)?.acknowledged_at ?? null);
+        }
       } catch (e) {
         console.error('Error cargando turnos en móvil:', e);
         if (isMounted) {
@@ -256,7 +286,16 @@ export default function TurnosScreen() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, employee?.id, employee?.company_id, weekStart]));
+  }, [session?.user?.id, employee?.id, employee?.company_id, weekStart, refreshKey]));
+
+  const todayYmd = formatLocalYmd(new Date());
+  const ultimaPublicacion = turnos.reduce<string | null>(
+    (max, t) => (t.publishedAt && (!max || t.publishedAt > max) ? t.publishedAt : max),
+    null,
+  );
+  const needsAck = turnos.length > 0 && !!ultimaPublicacion && (!ackAt || ackAt < ultimaPublicacion);
+  const companyId = employee?.company_id?.trim() || null;
+  const bump = () => setRefreshKey((k) => k + 1);
 
   const renderItem = ({ item }: { item: Turno }) => (
     <View style={[styles.card, item.isToday && styles.cardToday]}>
@@ -284,8 +323,21 @@ export default function TurnosScreen() {
       </View>
 
       <View style={styles.cardBottom}>
-        <Text style={styles.branchText}>{item.sucursal}</Text>
-        {!!item.area && <Text style={styles.areaText}>{item.area}</Text>}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.branchText}>{item.sucursal}</Text>
+          {!!item.area && <Text style={styles.areaText}>{item.area}</Text>}
+        </View>
+        {item.trabajo && item.fechaYmd >= todayYmd && companyId ? (
+          <TouchableOpacity
+            style={styles.swapBtn}
+            onPress={() => setSwapFor({ date: item.fechaYmd, label: `${item.fecha} ${item.entrada}–${item.salida}` })}
+            accessibilityRole="button"
+            accessibilityLabel={`Pedir cambio del turno del ${item.fecha}`}
+          >
+            <Ionicons name="swap-horizontal" size={16} color={palette.brand.base} />
+            <Text style={styles.swapBtnText}>Pedir cambio</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
@@ -293,7 +345,20 @@ export default function TurnosScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Mi Horario de la Semana</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Mi Horario de la Semana</Text>
+          {companyId && employee?.id ? (
+            <TouchableOpacity
+              style={styles.availBtn}
+              onPress={() => setShowAvail(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Mi disponibilidad"
+            >
+              <Ionicons name="options-outline" size={18} color={palette.brand.base} />
+              <Text style={styles.swapBtnText}>Disponibilidad</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
         <View style={styles.weekNav}>
           <TouchableOpacity
             style={styles.weekArrow}
@@ -331,7 +396,17 @@ export default function TurnosScreen() {
           <ActivityIndicator size="large" color={palette.brand.base} />
           <Text style={styles.loadingText}>Cargando...</Text>
         </View>
-      ) : turnos.length === 0 ? (
+      ) : (
+        <FlatList
+          data={turnos}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <AckBanner weekStart={weekStart} needsAck={needsAck} onDone={bump} palette={palette} />
+          }
+          ListEmptyComponent={
         <View style={styles.empty}>
           <Ionicons name="calendar-clear-outline" size={64} color={palette.text.tertiary} />
           <Text style={styles.emptyTitle}>No tienes turnos publicados</Text>
@@ -340,15 +415,47 @@ export default function TurnosScreen() {
             publique el horario: te avisaremos cuando lo haga.
           </Text>
         </View>
-      ) : (
-        <FlatList
-          data={turnos}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
+          }
+          ListFooterComponent={
+            companyId && employee?.id ? (
+              <>
+                <OpenShiftsSection
+                  companyId={companyId}
+                  employeeId={employee.id}
+                  refreshKey={refreshKey}
+                  onChanged={bump}
+                  palette={palette}
+                />
+                <SwapRequestsSection refreshKey={refreshKey} onChanged={bump} palette={palette} />
+              </>
+            ) : null
+          }
         />
       )}
+
+      {companyId ? (
+        <SwapRequestModal
+          visible={swapFor != null}
+          companyId={companyId}
+          myDate={swapFor?.date ?? null}
+          myLabel={swapFor?.label ?? ''}
+          onClose={() => setSwapFor(null)}
+          onSent={() => {
+            setSwapFor(null);
+            bump();
+          }}
+          palette={palette}
+        />
+      ) : null}
+      {companyId && employee?.id ? (
+        <AvailabilityModal
+          visible={showAvail}
+          companyId={companyId}
+          employeeId={employee.id}
+          onClose={() => setShowAvail(false)}
+          palette={palette}
+        />
+      ) : null}
     </View>
   );
 }
@@ -518,6 +625,40 @@ const makeStyles = (c: Palette) =>
     },
     cardBottom: {
       marginTop: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    swapBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: c.brand.base,
+    },
+    swapBtnText: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: c.brand.base,
+    },
+    titleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    availBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: c.border,
     },
     branchText: {
       fontSize: 14,
