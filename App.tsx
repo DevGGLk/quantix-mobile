@@ -47,6 +47,7 @@ import SolicitarPrestamoScreen from './screens/SolicitarPrestamoScreen';
 import PrestamoDetalleScreen from './screens/PrestamoDetalleScreen';
 import RegistrarPagoScreen from './screens/RegistrarPagoScreen';
 import MisPagosScreen from './screens/MisPagosScreen';
+import EncuestasScreen from './screens/EncuestasScreen';
 import type { MainTabParamList, RootStackParamList } from './types/navigation';
 import { initSentryFromEnv } from './lib/sentryInit';
 
@@ -62,7 +63,9 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-type DestinoAviso = { tab: 'Turnos'; params?: { weekStart?: string } };
+type DestinoAviso =
+  | { tab: 'Turnos'; params?: { weekStart?: string } }
+  | { stack: 'Encuestas'; params?: { surveyId?: string } };
 
 /**
  * Pestaña a abrir al tocar un push, según `data.category` (lo manda
@@ -71,11 +74,21 @@ type DestinoAviso = { tab: 'Turnos'; params?: { weekStart?: string } };
  * es la siguiente y no la actual.
  */
 function destinoParaAviso(data: unknown): DestinoAviso | null {
-  const d = data as { category?: unknown; week_start?: unknown } | null;
+  const d = data as { category?: unknown; week_start?: unknown; url?: unknown } | null;
+  // Encuesta nueva o recordatorio: abre la encuesta (el id viene en la url /mi-portal?encuesta=<id>).
+  if (d?.category === 'encuesta') {
+    const m = typeof d.url === 'string' ? /[?&]encuesta=([0-9a-f-]{36})/i.exec(d.url) : null;
+    return { stack: 'Encuestas', params: m ? { surveyId: m[1] } : undefined };
+  }
   // Publicación de semana, cambios de turno y turnos abiertos abren la pestaña Turnos.
   if (d?.category !== 'turnos_publicados' && d?.category !== 'cambio_turno' && d?.category !== 'turno_abierto') return null;
   const ws = typeof d.week_start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.week_start) ? d.week_start : undefined;
   return { tab: 'Turnos', params: ws ? { weekStart: ws } : undefined };
+}
+
+function navegarA(destino: DestinoAviso) {
+  if ('stack' in destino) navigationRef.navigate(destino.stack, destino.params);
+  else navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
 }
 
 const TAB_ICONS = {
@@ -212,7 +225,7 @@ function AppInner() {
   // (arranque en frío, login, onboarding) queda pendiente hasta onReady.
   const pendingTab = useRef<DestinoAviso | null>(null);
   const irATab = useCallback((destino: DestinoAviso) => {
-    if (navigationRef.isReady()) navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
+    if (navigationRef.isReady()) navegarA(destino);
     else pendingTab.current = destino;
   }, []);
 
@@ -390,7 +403,7 @@ function AppInner() {
               const destino = pendingTab.current;
               if (destino) {
                 pendingTab.current = null;
-                navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
+                navegarA(destino);
               }
             }}
           >
@@ -514,6 +527,11 @@ function AppInner() {
               name="MisPagos"
               component={MisPagosScreen}
               options={{ title: 'Mis pagos' }}
+            />
+            <Stack.Screen
+              name="Encuestas"
+              component={EncuestasScreen}
+              options={{ title: 'Encuestas' }}
             />
           </Stack.Navigator>
         </NavigationContainer>

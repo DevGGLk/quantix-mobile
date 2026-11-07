@@ -24,6 +24,7 @@ import type { TabCompositeNavigation } from '../types/navigation';
 import { HelpModal } from '../components/HelpModal';
 import { CongratsBanner } from '../components/CongratsBanner';
 import { WorkedTimeChronometer } from '../components/WorkedTimeChronometer';
+import { EncuestasPendientesCard } from '../components/EncuestasPendientesCard';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
 import {
@@ -1413,6 +1414,7 @@ export default function HomeScreen() {
       >
         <View style={styles.content}>
           <CongratsBanner companyId={companyId} />
+          <EncuestasPendientesCard companyId={companyId} />
           <View style={styles.clockSectionHeader}>
             <Text style={styles.clockSectionTitle}>Reloj checador</Text>
             <TouchableOpacity
