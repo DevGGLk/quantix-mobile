@@ -38,6 +38,8 @@ type Turno = {
   /** Turno de trabajo (no día libre ni ausencia): se puede pedir cambio. */
   trabajo: boolean;
   publishedAt: string | null;
+  /** Inicio real del turno (timestamptz): no se puede pedir cambio de un turno ya empezado. */
+  inicioTs: string | null;
 };
 
 function toSpanishDayLabel(date: Date) {
@@ -121,7 +123,8 @@ function mapScheduleStatus(raw?: string | null) {
   const value = (raw ?? '').toLowerCase();
   switch (value) {
     case 'published':
-      return { label: 'Confirmado', tone: 'success' as const };
+      // «Publicado», no «Confirmado»: confirmar es el «Lo vi» del colaborador.
+      return { label: 'Publicado', tone: 'success' as const };
     case 'draft':
       return { label: 'Borrador', tone: 'warning' as const };
     case 'archived':
@@ -253,6 +256,7 @@ export default function TurnosScreen() {
             fechaYmd: assigned,
             trabajo: !isDayOff && !noLaborable && row.start_time != null,
             publishedAt: (row.published_at as string | null) ?? null,
+            inicioTs: (row.start_time as string | null) ?? null,
           };
         });
 
@@ -327,7 +331,8 @@ export default function TurnosScreen() {
           <Text style={styles.branchText}>{item.sucursal}</Text>
           {!!item.area && <Text style={styles.areaText}>{item.area}</Text>}
         </View>
-        {item.trabajo && item.fechaYmd >= todayYmd && companyId ? (
+        {item.trabajo && item.fechaYmd >= todayYmd && companyId &&
+        (!item.inicioTs || new Date(item.inicioTs).getTime() > Date.now()) ? (
           <TouchableOpacity
             style={styles.swapBtn}
             onPress={() => setSwapFor({ date: item.fechaYmd, label: `${item.fecha} ${item.entrada}–${item.salida}` })}
