@@ -112,11 +112,12 @@ export function OpenShiftsSection({
   const s = useMemo(() => makeStyles(palette), [palette]);
   const [rows, setRows] = useState<OpenShift[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const hoy = new Date();
     const ymd = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
-    const { data } = await supabase
+    const { data, error: err } = await supabase
       .from('open_shifts')
       .select('id, business_date, status, note, claimed_by, shift_templates(name, start_time, end_time)')
       .eq('company_id', companyId)
@@ -128,6 +129,7 @@ export function OpenShiftsSection({
       ...r,
       shift_templates: Array.isArray(r.shift_templates) ? r.shift_templates[0] ?? null : r.shift_templates,
     }));
+    setError(err ? 'No se pudieron cargar los turnos disponibles.' : null);
     // Abiertos para todos; los «solicitados» solo si los pedí yo.
     setRows(list.filter((r) => r.status === 'abierto' || r.claimed_by === employeeId));
   }, [companyId, employeeId]);
@@ -136,6 +138,7 @@ export function OpenShiftsSection({
     void load();
   }, [load, refreshKey]);
 
+  if (error) return <Text style={[s.help, { marginTop: 16 }]}>{error}</Text>;
   if (rows.length === 0) return null;
   return (
     <View style={s.section}>
@@ -219,8 +222,10 @@ export function SwapRequestsSection({
   const [rows, setRows] = useState<SwapRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
 
+  const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
-    const { data } = await supabase.rpc('my_shift_requests');
+    const { data, error: err } = await supabase.rpc('my_shift_requests');
+    setError(err ? 'No se pudieron cargar tus cambios de turno.' : null);
     setRows(((data ?? []) as SwapRow[]).slice(0, 15));
   }, []);
 
@@ -239,6 +244,7 @@ export function SwapRequestsSection({
     }
   };
 
+  if (error) return <Text style={[s.help, { marginTop: 16 }]}>{error}</Text>;
   if (rows.length === 0) return null;
   return (
     <View style={s.section}>
@@ -472,14 +478,22 @@ export function AvailabilityModal({
   const vacio = (): Disp[] => Array.from({ length: 7 }, () => ({ status: 'disponible', from_time: '', to_time: '' }));
   const [dias, setDias] = useState<Disp[]>(vacio);
   const [busy, setBusy] = useState(false);
+  /** null = cargando; false = no se pudo leer (guardar borraría la disponibilidad real). */
+  const [cargada, setCargada] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!visible) return;
+    setCargada(null);
     void supabase
       .from('employee_availability')
       .select('weekday, status, from_time, to_time')
       .eq('employee_id', employeeId)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          setCargada(false);
+          return;
+        }
+        setCargada(true);
         const next = vacio();
         for (const r of (data ?? []) as { weekday: number; status: Disp['status']; from_time: string | null; to_time: string | null }[]) {
           next[r.weekday - 1] = { status: r.status, from_time: (r.from_time ?? '').slice(0, 5), to_time: (r.to_time ?? '').slice(0, 5) };
@@ -491,6 +505,10 @@ export function AvailabilityModal({
   const set = (i: number, patch: Partial<Disp>) => setDias((prev) => prev.map((d, j) => (j === i ? { ...d, ...patch } : d)));
 
   const guardar = async () => {
+    if (cargada !== true) {
+      Alert.alert('Disponibilidad', 'No se pudo leer tu disponibilidad actual. Cierra y vuelve a abrir antes de guardar.');
+      return;
+    }
     const re = /^\d{2}:\d{2}$/;
     for (let i = 0; i < 7; i++) {
       const d = dias[i];
