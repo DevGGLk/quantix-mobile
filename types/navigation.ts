@@ -83,6 +83,8 @@ export type RootStackParamList = {
   PrestamoDetalle: { request: LoanRequestRouteParam };
   RegistrarPago: { loan: ActiveLoanRouteParam };
   MisPagos: undefined;
+  /** `surveyId` abre esa encuesta (p. ej. al tocar el aviso «Nueva encuesta»). */
+  Encuestas: { surveyId?: string } | undefined;
 };
 
 export type RootStackNavigation = NativeStackNavigationProp<RootStackParamList>;

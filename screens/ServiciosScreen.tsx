@@ -182,6 +182,15 @@ export default function ServiciosScreen() {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.85}
+          onPress={() => navigation.navigate('Encuestas')}
+        >
+          <Ionicons name="clipboard-outline" size={32} color="#ec4899" />
+          <Text style={styles.cardLabel}>Encuestas</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.85}
           onPress={() => navigation.navigate('Sugerencias')}
         >
           <Ionicons name="bulb-outline" size={32} color="#eab308" />
