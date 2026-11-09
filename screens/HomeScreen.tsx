@@ -25,6 +25,7 @@ import { HelpModal } from '../components/HelpModal';
 import { CongratsBanner } from '../components/CongratsBanner';
 import { WorkedTimeChronometer } from '../components/WorkedTimeChronometer';
 import { EncuestasPendientesCard } from '../components/EncuestasPendientesCard';
+import { DesempenoPendienteCard } from '../components/DesempenoPendienteCard';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
 import {
@@ -1415,6 +1416,7 @@ export default function HomeScreen() {
         <View style={styles.content}>
           <CongratsBanner companyId={companyId} />
           <EncuestasPendientesCard companyId={companyId} />
+          <DesempenoPendienteCard />
           <View style={styles.clockSectionHeader}>
             <Text style={styles.clockSectionTitle}>Reloj checador</Text>
             <TouchableOpacity
