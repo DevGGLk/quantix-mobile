@@ -48,6 +48,7 @@ import PrestamoDetalleScreen from './screens/PrestamoDetalleScreen';
 import RegistrarPagoScreen from './screens/RegistrarPagoScreen';
 import MisPagosScreen from './screens/MisPagosScreen';
 import EncuestasScreen from './screens/EncuestasScreen';
+import DesempenoScreen from './screens/DesempenoScreen';
 import type { MainTabParamList, RootStackParamList } from './types/navigation';
 import { initSentryFromEnv } from './lib/sentryInit';
 
@@ -65,7 +66,8 @@ const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 type DestinoAviso =
   | { tab: 'Turnos'; params?: { weekStart?: string } }
-  | { stack: 'Encuestas'; params?: { surveyId?: string } };
+  | { stack: 'Encuestas'; params?: { surveyId?: string } }
+  | { stack: 'Desempeno'; params?: undefined };
 
 /**
  * Pestaña a abrir al tocar un push, según `data.category` (lo manda
@@ -80,6 +82,8 @@ function destinoParaAviso(data: unknown): DestinoAviso | null {
     const m = typeof d.url === 'string' ? /[?&]encuesta=([0-9a-f-]{36})/i.exec(d.url) : null;
     return { stack: 'Encuestas', params: m ? { surveyId: m[1] } : undefined };
   }
+  // Desempeño: autoevaluación, evaluaciones del equipo, recordatorios y resultados publicados.
+  if (d?.category === 'desempeno') return { stack: 'Desempeno' };
   // Publicación de semana, cambios de turno y turnos abiertos abren la pestaña Turnos.
   if (d?.category !== 'turnos_publicados' && d?.category !== 'cambio_turno' && d?.category !== 'turno_abierto') return null;
   const ws = typeof d.week_start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.week_start) ? d.week_start : undefined;
@@ -87,7 +91,10 @@ function destinoParaAviso(data: unknown): DestinoAviso | null {
 }
 
 function navegarA(destino: DestinoAviso) {
-  if ('stack' in destino) navigationRef.navigate(destino.stack, destino.params);
+  if ('stack' in destino) {
+    if (destino.stack === 'Desempeno') navigationRef.navigate('Desempeno');
+    else navigationRef.navigate(destino.stack, destino.params);
+  }
   else navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
 }
 
@@ -532,6 +539,11 @@ function AppInner() {
               name="Encuestas"
               component={EncuestasScreen}
               options={{ title: 'Encuestas' }}
+            />
+            <Stack.Screen
+              name="Desempeno"
+              component={DesempenoScreen}
+              options={{ title: 'Mi desempeño' }}
             />
           </Stack.Navigator>
         </NavigationContainer>

@@ -191,6 +191,15 @@ export default function ServiciosScreen() {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.85}
+          onPress={() => navigation.navigate('Desempeno')}
+        >
+          <Ionicons name="ribbon-outline" size={32} color="#8b5cf6" />
+          <Text style={styles.cardLabel}>Mi desempeño</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.85}
           onPress={() => navigation.navigate('Sugerencias')}
         >
           <Ionicons name="bulb-outline" size={32} color="#eab308" />

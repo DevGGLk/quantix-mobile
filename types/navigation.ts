@@ -85,6 +85,7 @@ export type RootStackParamList = {
   MisPagos: undefined;
   /** `surveyId` abre esa encuesta (p. ej. al tocar el aviso «Nueva encuesta»). */
   Encuestas: { surveyId?: string } | undefined;
+  Desempeno: undefined;
 };
 
 export type RootStackNavigation = NativeStackNavigationProp<RootStackParamList>;
