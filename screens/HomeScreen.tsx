@@ -197,14 +197,26 @@ type ClockInSendBody = {
 };
 
 type ClockInSendResult =
-  | { kind: 'ok'; timeEntryId: string | null; alreadyProcessed: boolean; markingPlace: string | null }
-  | { kind: 'rejected'; message: string; reason: string | null }
+  | {
+      kind: 'ok';
+      timeEntryId: string | null;
+      alreadyProcessed: boolean;
+      markingPlace: string | null;
+      /** El servidor reabrió la jornada anterior (salida por error) en vez de crear otra. */
+      reopened: boolean;
+      reopenedClockInAt: string | null;
+      message: string | null;
+    }
+  | { kind: 'rejected'; message: string; reason: string | null; status: number }
   /** Sin sesión válida. NO es falta de red: encolarlo lo reintentaba para siempre. */
   | { kind: 'session'; error: string }
   | { kind: 'network'; error: string };
 
 /** Sin respuesta en este tiempo se trata como sin conexión (antes el botón podía girar sin fin). */
 const CLOCK_IN_FETCH_TIMEOUT_MS = 20_000;
+
+/** Antes de cerrar una jornada más corta que esto se pide confirmación (salida por error). */
+const UMBRAL_SALIDA_CORTA_S = 30 * 60;
 
 /**
  * M2 convergencia marcaje: el servidor (clock_in_secure vía el API) es la ÚNICA
@@ -247,6 +259,7 @@ async function sendClockInToServer(body: ClockInSendBody): Promise<ClockInSendRe
         kind: 'rejected',
         message: clockInResponseErrorMessage(json, text, res.status),
         reason: typeof json?.reason === 'string' ? json.reason : null,
+        status: res.status,
       };
     }
     // `branch_name` es el punto que clock_in_secure resolvió por GPS (`v_best_name`), no la
@@ -257,6 +270,9 @@ async function sendClockInToServer(body: ClockInSendBody): Promise<ClockInSendRe
       timeEntryId: extractClockInTimeEntryId(json),
       alreadyProcessed: json?.already_processed === true,
       markingPlace: punto || null,
+      reopened: json?.reopened === true,
+      reopenedClockInAt: typeof json?.clock_in === 'string' ? json.clock_in : null,
+      message: typeof json?.message === 'string' ? json.message : null,
     };
   } catch (e: unknown) {
     return { kind: 'network', error: errorMessage(e) };
@@ -825,7 +841,8 @@ export default function HomeScreen() {
       | 'cliente_gps_apagado'
       | 'cliente_sin_senal'
       | 'cliente_cancelo_fuera_de_punto'
-      | 'cliente_error',
+      | 'cliente_error'
+      | 'cliente_error_servidor',
     extra: {
       message?: string;
       lat?: number;
@@ -1075,6 +1092,22 @@ export default function HomeScreen() {
         isMocked: coords.mocked,
       });
 
+      if (result.kind === 'ok' && result.reopened) {
+        // Salida por error: el servidor reabrió la jornada anterior con su hora de entrada.
+        setClockStatusLoadError(null);
+        setIsClockedIn(true);
+        setActiveTimeEntryId(result.timeEntryId);
+        setActiveClockInAt(result.reopenedClockInAt ?? new Date().toISOString());
+        setActiveMarkingPlace(result.markingPlace);
+        setIsOnPause(false);
+        setStatusReloadKey((k) => k + 1);
+        Alert.alert(
+          'Retomamos tu jornada',
+          result.message ?? 'La salida que marcaste hace un momento quedó anulada.'
+        );
+        return;
+      }
+
       if (result.kind === 'ok') {
         setClockStatusLoadError(null);
         setIsClockedIn(true);
@@ -1102,6 +1135,19 @@ export default function HomeScreen() {
       }
 
       if (result.kind === 'rejected') {
+        // Un 5xx no deja rastro en el servidor (la transacción se revierte): se reporta desde acá.
+        if (result.status >= 500) {
+          reportarFalloMarcaje('cliente_error_servidor', {
+            message: `HTTP ${result.status}: ${result.message}`,
+            lat: coords.lat,
+            lon: coords.lon,
+            accuracy: coords.accuracy,
+          });
+        }
+        if (result.reason === 'too_soon') {
+          Alert.alert('Esperá un momento', result.message);
+          return;
+        }
         if (result.reason === 'duplicate_open') {
           // Ya tiene una entrada abierta (doble toque, o la cola ya la registró): no es un error.
           setStatusReloadKey((k) => k + 1);
@@ -1152,6 +1198,32 @@ export default function HomeScreen() {
       punchingRef.current = false;
       setIsPunching(false);
     }
+  };
+
+  /**
+   * Salida con la jornada recién empezada (< 30 min): se pide confirmación antes de cerrar.
+   * Caso Norvin 10/11: entrada y, por un segundo toque, salida a los 58 s; perdió el turno.
+   */
+  const confirmarSalida = () => {
+    if (isPunching || punchingRef.current) return;
+    const inicioMs = activeClockInAt ? new Date(activeClockInAt).getTime() : NaN;
+    const segundos = Number.isFinite(inicioMs) ? Math.floor((Date.now() - inicioMs) / 1000) : NaN;
+    if (Number.isFinite(segundos) && segundos >= 0 && segundos < UMBRAL_SALIDA_CORTA_S) {
+      const minutos = Math.floor(segundos / 60);
+      Alert.alert(
+        '¿Marcar salida ya?',
+        (minutos < 1
+          ? 'Marcaste tu entrada hace menos de un minuto.'
+          : `Llevás solo ${minutos} min en tu jornada.`) + ' Si marcás salida, tu jornada se cierra.',
+        [
+          { text: 'No, sigo trabajando', style: 'cancel' },
+          { text: 'Sí, marcar salida', style: 'destructive', onPress: () => void handleClockOut() },
+        ],
+        { cancelable: true }
+      );
+      return;
+    }
+    void handleClockOut();
   };
 
   const handleClockOut = async () => {
@@ -1483,7 +1555,7 @@ export default function HomeScreen() {
                   (isPunching || isPauseActionLoading) && styles.mainButtonPunching,
                 ]}
                 activeOpacity={0.85}
-                onPress={handleClockOut}
+                onPress={confirmarSalida}
                 disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
               >
                 {isPunching ? (
@@ -1515,7 +1587,7 @@ export default function HomeScreen() {
                     (isPunching || isPauseActionLoading) && styles.mainButtonPunching,
                   ]}
                   activeOpacity={0.85}
-                  onPress={handleClockOut}
+                  onPress={confirmarSalida}
                   disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
                 >
                   {isPunching ? (
