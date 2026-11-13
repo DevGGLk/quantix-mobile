@@ -28,6 +28,7 @@ type MiChecklist = {
   frequency: string | null;
   custom_days_of_week: string[] | null;
   aplica_hoy: boolean;
+  period_key: string | null;
   submission_id: string | null;
   submission_status: string | null;
   completion_percentage: number | string | null;
@@ -97,6 +98,7 @@ export default function ChecklistsScreen() {
         id: c.id,
         title: c.title,
         category: c.category,
+        period_key: c.period_key,
         submission_status: c.submission_status,
         rejected_reason: c.rejected_reason,
         metadata: c.metadata,
@@ -113,7 +115,7 @@ export default function ChecklistsScreen() {
       >
         <Text style={styles.title}>Checklists Operativos</Text>
         <Text style={styles.subtitle}>
-          Marca cada tarea con su foto. Un envío por período; si te lo devuelven, puedes corregirlo.
+          Responde cada tarea (con foto cuando se pide). Tu avance se guarda solo. Un envío por período; si te lo devuelven, puedes corregirlo.
         </Text>
 
         {isLoading && (
