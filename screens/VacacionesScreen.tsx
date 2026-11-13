@@ -102,6 +102,19 @@ function rangoSolicitud(s: Solicitud): string {
   return s.start_date === s.end_date ? f(s.start_date) : `${f(s.start_date)} – ${f(s.end_date)}`;
 }
 
+const API_BASE = (process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? '').replace(/\/$/, '');
+
+type PendienteEquipo = Solicitud & {
+  employee_id: string;
+  notes: string | null;
+  employees?: { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[] | null;
+};
+
+function nombreEquipo(p: PendienteEquipo): string {
+  const e = Array.isArray(p.employees) ? p.employees[0] : p.employees;
+  return [e?.first_name, e?.last_name].filter(Boolean).join(' ').trim() || 'Colaborador';
+}
+
 export default function VacacionesScreen() {
   const navigation = useNavigation<StackScreenNavigation>();
   const { employeeRecord } = useAuth();
@@ -111,6 +124,9 @@ export default function VacacionesScreen() {
   /** Auditoría 12/11/2026: la app no mostraba las solicitudes propias ni dejaba cancelarlas. */
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
   const [cancelando, setCancelando] = useState<string | null>(null);
+  /** Ronda 6: el jefe directo aprueba o rechaza las solicitudes de su equipo desde la app. */
+  const [equipo, setEquipo] = useState<PendienteEquipo[]>([]);
+  const [decidiendo, setDecidiendo] = useState<string | null>(null);
 
   const empId = employeeRecord?.id ?? null;
   const hireDate =
@@ -136,6 +152,23 @@ export default function VacacionesScreen() {
       .order('start_date', { ascending: false })
       .limit(15);
     setSolicitudes((sol ?? []) as Solicitud[]);
+    const { data: aCargo } = await supabase
+      .from('employees')
+      .select('id')
+      .or(`reports_to.eq.${empId},manager_id.eq.${empId}`)
+      .is('deleted_at', null);
+    const ids = ((aCargo ?? []) as { id: string }[]).map((e) => e.id).filter((id) => id !== empId);
+    if (ids.length > 0) {
+      const { data: pend } = await supabase
+        .from('time_off_requests')
+        .select('id, employee_id, request_type, start_date, end_date, hora_inicio, hora_fin, status, notes, employees(first_name, last_name)')
+        .in('employee_id', ids)
+        .eq('status', 'pendiente')
+        .order('start_date', { ascending: true });
+      setEquipo((pend ?? []) as PendienteEquipo[]);
+    } else {
+      setEquipo([]);
+    }
     setLoading(false);
   }, [empId]);
 
@@ -172,6 +205,74 @@ export default function VacacionesScreen() {
       },
     ]);
   };
+
+  const decidir = async (p: PendienteEquipo, decision: 'aprobada' | 'rechazada', reason: string | null) => {
+    const { data: s } = await supabase.auth.getSession();
+    const token = s.session?.access_token;
+    if (!token || !API_BASE) {
+      Alert.alert('Sin conexión', 'No se pudo enviar tu decisión. Intenta de nuevo.');
+      return;
+    }
+    setDecidiendo(p.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/time-off/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ requestId: p.id, decision, reason }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        Alert.alert('No se pudo guardar', json.error ?? 'Intenta de nuevo.');
+        return;
+      }
+      Alert.alert(decision === 'aprobada' ? 'Aprobada' : 'Rechazada', `Le avisamos a ${nombreEquipo(p)}.`);
+      await load();
+    } catch {
+      Alert.alert('Sin conexión', 'No se pudo enviar tu decisión. Intenta de nuevo.');
+    } finally {
+      setDecidiendo(null);
+    }
+  };
+
+  const pedirRechazo = (p: PendienteEquipo) => {
+    if (typeof Alert.prompt === 'function') {
+      Alert.prompt('Motivo del rechazo', `Se le muestra a ${nombreEquipo(p)}.`, (txt) => {
+        if (txt && txt.trim()) void decidir(p, 'rechazada', txt.trim());
+      });
+    } else {
+      Alert.alert('Rechazar solicitud', `¿Rechazar la solicitud de ${nombreEquipo(p)}?`, [
+        { text: 'No', style: 'cancel' },
+        { text: 'Sí, rechazar', style: 'destructive', onPress: () => void decidir(p, 'rechazada', 'Rechazada por el jefe directo desde la app.') },
+      ]);
+    }
+  };
+
+  const solicitudesEquipo =
+    equipo.length > 0 ? (
+      <View style={styles.infoCard}>
+        <Text style={styles.solTitle}>Solicitudes de mi equipo</Text>
+        {equipo.map((p, i) => (
+          <View key={p.id}>
+            {i > 0 ? <View style={styles.infoDivider} /> : null}
+            <View style={{ paddingVertical: 6 }}>
+              <Text style={styles.infoValue}>{nombreEquipo(p)}</Text>
+              <Text style={styles.infoLabel}>
+                {p.request_type ?? 'Ausencia'} · {rangoSolicitud(p)}
+              </Text>
+              {p.notes ? <Text style={styles.infoLabel} numberOfLines={2}>{p.notes}</Text> : null}
+              <View style={styles.solRow}>
+                <TouchableOpacity onPress={() => void decidir(p, 'aprobada', null)} disabled={decidiendo === p.id}>
+                  <Text style={styles.solApprove}>{decidiendo === p.id ? 'Guardando…' : 'Aprobar'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => pedirRechazo(p)} disabled={decidiendo === p.id}>
+                  <Text style={styles.solCancel}>Rechazar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ))}
+      </View>
+    ) : null;
 
   const misSolicitudes =
     solicitudes.length > 0 ? (
@@ -287,6 +388,7 @@ export default function VacacionesScreen() {
             <Ionicons name="paper-plane-outline" size={20} color="#ffffff" />
             <Text style={styles.ctaText}>Solicitar vacaciones o permiso</Text>
           </TouchableOpacity>
+          {solicitudesEquipo}
           {misSolicitudes}
         </>
       ) : (
@@ -303,6 +405,7 @@ export default function VacacionesScreen() {
             <Ionicons name="paper-plane-outline" size={20} color="#ffffff" />
             <Text style={styles.ctaText}>Solicitar vacaciones o permiso</Text>
           </TouchableOpacity>
+          {solicitudesEquipo}
           {misSolicitudes}
         </View>
       )}
@@ -314,6 +417,7 @@ const styles = StyleSheet.create({
   solTitle: { fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 8 },
   solRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   solCancel: { color: '#FF3F48', fontWeight: '700', fontSize: 13 },
+  solApprove: { color: '#1D9E75', fontWeight: '700', fontSize: 13, marginRight: 16 },
   container: { flex: 1, backgroundColor: theme.background },
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.background },
