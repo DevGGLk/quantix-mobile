@@ -75,6 +75,7 @@ export default function ChecklistsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [equipo, setEquipo] = useState(0);
 
   const companyId = employee?.company_id ?? null;
 
@@ -94,8 +95,17 @@ export default function ChecklistsScreen() {
     } else {
       setRows((data as MiChecklist[]) ?? []);
     }
+    // ¿Tiene gente a cargo? (para mostrar "Revisar mi equipo")
+    if (employee?.id) {
+      const { count } = await supabase
+        .from('employees')
+        .select('id', { count: 'exact', head: true })
+        .or(`reports_to.eq.${employee.id},manager_id.eq.${employee.id}`)
+        .neq('id', employee.id);
+      setEquipo(count ?? 0);
+    }
     setIsLoading(false);
-  }, [companyId]);
+  }, [companyId, employee?.id]);
 
   // Recarga al volver de responder uno.
   useFocusEffect(
@@ -146,6 +156,13 @@ export default function ChecklistsScreen() {
         <Text style={styles.subtitle}>
           Responde cada tarea (con foto cuando se pide). Tu avance se guarda solo. Un envío por período; si te lo devuelven, puedes corregirlo.
         </Text>
+
+        {equipo > 0 && (
+          <TouchableOpacity style={styles.teamBtn} onPress={() => navigation.navigate('ChecklistsEquipo')}>
+            <Ionicons name="people-outline" size={18} color={theme.primary} />
+            <Text style={styles.teamBtnText}>Revisar checklists de mi equipo</Text>
+          </TouchableOpacity>
+        )}
 
         {isLoading && (
           <View style={styles.loaderRow}>
@@ -279,6 +296,18 @@ const styles = StyleSheet.create({
   cardCategory: { marginTop: 4, fontSize: 13, color: theme.textSecondary },
   rejectedText: { marginTop: 6, fontSize: 13, color: '#b91c1c' },
   windowText: { marginTop: 6, fontSize: 13, fontWeight: '600' },
+  teamBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  teamBtnText: { fontSize: 14, fontWeight: '700', color: theme.primary },
   cardFooter: { marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
   cta: { fontSize: 14, fontWeight: '700', color: theme.primary },
   badge: {

@@ -1,5 +1,5 @@
+/* Copia móvil de quantix-dashboard/lib/checklists-respuestas.ts — mantener en sincronía (copiar el archivo completo). */
 /**
- * Copia móvil de quantix-dashboard/lib/checklists-respuestas.ts (mantener en sincronía).
  * Tipos de respuesta de las tareas de checklist (ronda 2).
  * La evaluación definitiva (cumple / no cumple, puntaje, crítica, antifraude) la hace
  * el RPC `checklist_enviar`; aquí solo se replica para mostrar al colaborador el
@@ -44,10 +44,20 @@ export type ItemConfig = {
   number_max: number | null
   unit: string | null
   options: ChoiceOption[] | null
+  /** Ronda 4: si no cumple, crear orden de Mantenimiento. */
+  on_fail_action: "none" | "work_order"
+  work_order_priority: "low" | "normal" | "high" | "urgent"
+}
+
+export const WORK_ORDER_PRIORITY_LABELS: Record<ItemConfig["work_order_priority"], string> = {
+  low: "Baja",
+  normal: "Normal",
+  high: "Alta",
+  urgent: "Urgente",
 }
 
 export const ITEM_CONFIG_COLUMNS =
-  "id, checklist_id, task_description, instructions, order_index, response_type, photo_rule, is_critical, weight, allow_na, expected_answer, number_min, number_max, unit, options"
+  "id, checklist_id, task_description, instructions, order_index, response_type, photo_rule, is_critical, weight, allow_na, expected_answer, number_min, number_max, unit, options, on_fail_action, work_order_priority"
 
 function toNum(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null
@@ -83,6 +93,12 @@ export function normalizeItem(row: Record<string, unknown>): ItemConfig {
     number_max: toNum(row.number_max),
     unit: (row.unit as string | null) ?? null,
     options: opts,
+    on_fail_action: row.on_fail_action === "work_order" ? "work_order" : "none",
+    work_order_priority: (["low", "normal", "high", "urgent"] as const).includes(
+      row.work_order_priority as "low" | "normal" | "high" | "urgent",
+    )
+      ? (row.work_order_priority as ItemConfig["work_order_priority"])
+      : "normal",
   }
 }
 
@@ -222,6 +238,7 @@ export function answersFromMetadata(items: ItemConfig[], metadata: unknown): Rec
   return out
 }
 
+/** Texto legible de la respuesta (aprobaciones). */
 export function answerLabel(item: ItemConfig, cell: Record<string, unknown> | undefined): string {
   if (!cell) return "Sin responder"
   if (cell.status === "na") return "No aplica"
@@ -241,6 +258,13 @@ export function answerLabel(item: ItemConfig, cell: Record<string, unknown> | un
   }
 }
 
+export const FLAG_LABELS: Record<string, string> = {
+  sin_ubicacion: "Sin ubicación",
+  fuera_de_sitio: "Lejos del lugar de trabajo",
+  foto_antigua: "Foto antigua",
+}
+
+/** Descripción corta de la regla de la tarea (lista del admin). */
 export function itemRuleSummary(it: ItemConfig): string {
   const parts: string[] = [RESPONSE_TYPE_LABELS[it.response_type]]
   if (it.response_type === "yes_no") parts.push(`correcto: ${it.expected_answer === "no" ? "No" : "Sí"}`)
@@ -257,5 +281,6 @@ export function itemRuleSummary(it: ItemConfig): string {
   if (it.is_critical) parts.push("CRÍTICA")
   if (it.weight !== 1) parts.push(`peso ${it.weight}`)
   if (it.allow_na) parts.push("admite No aplica")
+  if (it.on_fail_action === "work_order") parts.push(`si no cumple → orden de mantenimiento (${WORK_ORDER_PRIORITY_LABELS[it.work_order_priority].toLowerCase()})`)
   return parts.join(" · ")
 }
