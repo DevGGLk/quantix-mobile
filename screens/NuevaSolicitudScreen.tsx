@@ -24,19 +24,41 @@ import { errorMessage } from '../lib/errorMessage';
 /** Inserciones de ausencias: solo `time_off_requests` (no `employee_requests` legacy / RLS). */
 const SOLICITUDES_AUSENCIA_TABLA = 'time_off_requests' as const;
 
-type LeaveType = 'Vacaciones' | 'Permiso por Enfermedad' | 'Asunto Personal';
+type LeaveType = 'Vacaciones' | 'Permiso con goce' | 'Permiso sin goce' | 'Enfermedad (INSS)' | 'Justificar tardanza';
 
-/** Valores alineados con la columna `time_off_requests.request_type` (CHECK confirmado en Supabase). */
+/**
+ * Valores alineados con la columna `time_off_requests.request_type` (CHECK en Supabase).
+ * Auditoría 12/11/2026: «Asunto personal» siempre era sin goce (descuenta salario, aguinaldo y
+ * vacaciones) y no había permiso con goce ni forma de justificar una tardanza.
+ */
 function mapLeaveTypeToRequestType(type: LeaveType): string {
   switch (type) {
     case 'Vacaciones':
       return 'Vacaciones';
-    case 'Permiso por Enfermedad':
+    case 'Permiso con goce':
+      return 'Permiso con goce de sueldo';
+    case 'Enfermedad (INSS)':
       return 'Subsidio (INSS)';
-    case 'Asunto Personal':
+    case 'Justificar tardanza':
+      return 'Justificación de tardanza';
+    case 'Permiso sin goce':
     default:
       return 'Permiso sin goce de sueldo';
   }
+}
+
+/** Fecha local YYYY-MM-DD. `toISOString()` es UTC: después de las 18:00 en Managua daba el día siguiente. */
+function ymdLocal(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function parseHora(v: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
 }
 
 function diasCalendarioInclusivos(startIso: string, endIso: string): number {
@@ -70,6 +92,8 @@ export default function NuevaSolicitudScreen() {
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [reason, setReason] = useState('');
+  const [horaInicio, setHoraInicio] = useState('');
+  const [horaFin, setHoraFin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const formatDisplayDate = (date: Date) =>
@@ -84,7 +108,7 @@ export default function NuevaSolicitudScreen() {
       setShowStartDatePicker(false);
     }
     if (date) {
-      const iso = date.toISOString().slice(0, 10);
+      const iso = ymdLocal(date);
       setStartDateIso(iso);
       setStartDateDisplay(formatDisplayDate(date));
     }
@@ -95,13 +119,16 @@ export default function NuevaSolicitudScreen() {
       setShowEndDatePicker(false);
     }
     if (date) {
-      const iso = date.toISOString().slice(0, 10);
+      const iso = ymdLocal(date);
       setEndDateIso(iso);
       setEndDateDisplay(formatDisplayDate(date));
     }
   };
 
-  const requiereConsentimientoSeptimo = selectedType !== 'Vacaciones';
+  // La declaración del séptimo día solo aplica a lo que se descuenta.
+  const requiereConsentimientoSeptimo = selectedType === 'Permiso sin goce';
+  const esPermiso = selectedType === 'Permiso con goce' || selectedType === 'Permiso sin goce';
+  const unSoloDia = !!startDateIso && startDateIso === endDateIso;
   const envioBloqueadoPorConsentimiento = requiereConsentimientoSeptimo && !consentimientoLegal;
 
   const handleSubmit = async () => {
@@ -146,10 +173,35 @@ export default function NuevaSolicitudScreen() {
         return;
       }
 
-      const daysDeducted = diasCalendarioInclusivos(startDateIso, endDateIso);
+      let daysDeducted = diasCalendarioInclusivos(startDateIso, endDateIso);
       if (daysDeducted <= 0) {
         Alert.alert('Fechas inválidas', 'La fecha de fin debe ser igual o posterior a la de inicio.');
         return;
+      }
+      // Permiso por horas (un solo día, menos de 8 h): cuenta como fracción del día y el turno se
+      // conserva; la planilla descuenta solo esa fracción si es sin goce.
+      let hora_inicio: string | null = null;
+      let hora_fin: string | null = null;
+      if (esPermiso && unSoloDia && (horaInicio.trim() || horaFin.trim())) {
+        const a = parseHora(horaInicio);
+        const b = parseHora(horaFin);
+        if (a == null || b == null || b <= a) {
+          Alert.alert('Horas inválidas', 'Escribe la hora de inicio y fin como HH:MM (por ejemplo 08:00 y 10:30).');
+          return;
+        }
+        const horas = (b - a) / 60;
+        if (horas < 8) {
+          daysDeducted = Math.round((horas / 8) * 100) / 100;
+          hora_inicio = horaInicio.trim().padStart(5, '0');
+          hora_fin = horaFin.trim().padStart(5, '0');
+        }
+      }
+      if (selectedType === 'Justificar tardanza') {
+        if (!unSoloDia) {
+          Alert.alert('Un solo día', 'La justificación de tardanza es de un solo día.');
+          return;
+        }
+        daysDeducted = 0;
       }
 
       const tipoAusencia = mapLeaveTypeToRequestType(selectedType);
@@ -160,6 +212,8 @@ export default function NuevaSolicitudScreen() {
         start_date: startDateIso,
         end_date: endDateIso,
         days_deducted: daysDeducted,
+        hora_inicio,
+        hora_fin,
         notes: reason.trim(),
         status: 'pendiente',
       };
@@ -209,8 +263,10 @@ export default function NuevaSolicitudScreen() {
           <Text style={styles.label}>Tipo de solicitud</Text>
           <View style={styles.typesRow}>
             {renderTypeButton('Vacaciones')}
-            {renderTypeButton('Permiso por Enfermedad')}
-            {renderTypeButton('Asunto Personal')}
+            {renderTypeButton('Permiso con goce')}
+            {renderTypeButton('Permiso sin goce')}
+            {renderTypeButton('Enfermedad (INSS)')}
+            {renderTypeButton('Justificar tardanza')}
           </View>
         </View>
 
@@ -255,6 +311,30 @@ export default function NuevaSolicitudScreen() {
             />
           )}
         </View>
+
+        {esPermiso && unSoloDia ? (
+          <View style={styles.section}>
+            <Text style={styles.label}>¿Solo unas horas? (opcional)</Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TextInput
+                style={[styles.dateButton, { flex: 1 }]}
+                placeholder="Desde 08:00"
+                placeholderTextColor={theme.textMuted}
+                value={horaInicio}
+                onChangeText={setHoraInicio}
+                keyboardType="numbers-and-punctuation"
+              />
+              <TextInput
+                style={[styles.dateButton, { flex: 1 }]}
+                placeholder="Hasta 10:00"
+                placeholderTextColor={theme.textMuted}
+                value={horaFin}
+                onChangeText={setHoraFin}
+                keyboardType="numbers-and-punctuation"
+              />
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <Text style={styles.label}>Motivo / Comentarios</Text>
