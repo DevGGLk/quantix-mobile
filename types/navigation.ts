@@ -77,6 +77,7 @@ export type RootStackParamList = {
   Academia: undefined;
   Checklists: undefined;
   ResolverChecklist: { checklist: ChecklistRouteParam };
+  ChecklistsEquipo: undefined;
   Planilla: undefined;
   MiDisciplina: undefined;
   Sugerencias: undefined;
