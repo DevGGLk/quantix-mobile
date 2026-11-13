@@ -52,6 +52,15 @@ function ymdLocal(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+/** Motivos del permiso con goce y su tope legal (Art. 73 CT; paternidad Art. 67 Cn.). La base lo valida. */
+const MOTIVOS_PERMISO: { value: string; label: string }[] = [
+  { value: 'cita_medica', label: 'Cita médica' },
+  { value: 'duelo', label: 'Duelo (hasta 3 días hábiles)' },
+  { value: 'matrimonio', label: 'Matrimonio (hasta 5 días hábiles)' },
+  { value: 'paternidad', label: 'Paternidad (hasta 5 días)' },
+  { value: 'otro', label: 'Otro' },
+];
+
 function parseHora(v: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
   if (!m) return null;
@@ -94,6 +103,7 @@ export default function NuevaSolicitudScreen() {
   const [reason, setReason] = useState('');
   const [horaInicio, setHoraInicio] = useState('');
   const [horaFin, setHoraFin] = useState('');
+  const [motivoPermiso, setMotivoPermiso] = useState('cita_medica');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const formatDisplayDate = (date: Date) =>
@@ -214,6 +224,7 @@ export default function NuevaSolicitudScreen() {
         days_deducted: daysDeducted,
         hora_inicio,
         hora_fin,
+        motivo_permiso: selectedType === 'Permiso con goce' ? motivoPermiso : null,
         notes: reason.trim(),
         status: 'pendiente',
       };
@@ -311,6 +322,27 @@ export default function NuevaSolicitudScreen() {
             />
           )}
         </View>
+
+        {selectedType === 'Permiso con goce' ? (
+          <View style={styles.section}>
+            <Text style={styles.label}>Motivo del permiso</Text>
+            <View style={styles.typesRow}>
+              {MOTIVOS_PERMISO.map((m) => {
+                const activo = motivoPermiso === m.value;
+                return (
+                  <TouchableOpacity
+                    key={m.value}
+                    style={[styles.typeButton, activo && styles.typeButtonActive]}
+                    activeOpacity={0.85}
+                    onPress={() => setMotivoPermiso(m.value)}
+                  >
+                    <Text style={[styles.typeButtonText, activo && styles.typeButtonTextActive]}>{m.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
 
         {esPermiso && unSoloDia ? (
           <View style={styles.section}>
