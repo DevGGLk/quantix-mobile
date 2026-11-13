@@ -10,6 +10,8 @@ export type ChecklistRouteParam = {
   title?: string | null;
   category?: string | null;
   /** Estado del envío del período en curso (rejected = se puede corregir). */
+  /** Período en curso (clave del borrador local). */
+  period_key?: string | null;
   submission_status?: string | null;
   rejected_reason?: string | null;
   /** metadata del envío (fotos ya enviadas, para precargar al corregir). */
