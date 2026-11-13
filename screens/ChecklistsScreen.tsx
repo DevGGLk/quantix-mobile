@@ -95,17 +95,12 @@ export default function ChecklistsScreen() {
     } else {
       setRows((data as MiChecklist[]) ?? []);
     }
-    // ¿Tiene gente a cargo? (para mostrar "Revisar mi equipo")
-    if (employee?.id) {
-      const { count } = await supabase
-        .from('employees')
-        .select('id', { count: 'exact', head: true })
-        .or(`reports_to.eq.${employee.id},manager_id.eq.${employee.id}`)
-        .neq('id', employee.id);
-      setEquipo(count ?? 0);
-    }
+    // ¿Le toca revisar? (jefe directo o responsable de un negocio)
+    const { data: rolData } = await supabase.rpc('checklist_mi_rol_revision');
+    const r = ((rolData ?? []) as { es_jefe: boolean; negocios: string[] | null }[])[0];
+    setEquipo(r && (r.es_jefe || (r.negocios ?? []).length > 0) ? 1 : 0);
     setIsLoading(false);
-  }, [companyId, employee?.id]);
+  }, [companyId]);
 
   // Recarga al volver de responder uno.
   useFocusEffect(
@@ -160,7 +155,7 @@ export default function ChecklistsScreen() {
         {equipo > 0 && (
           <TouchableOpacity style={styles.teamBtn} onPress={() => navigation.navigate('ChecklistsEquipo')}>
             <Ionicons name="people-outline" size={18} color={theme.primary} />
-            <Text style={styles.teamBtnText}>Revisar checklists de mi equipo</Text>
+            <Text style={styles.teamBtnText}>Checklists por revisar</Text>
           </TouchableOpacity>
         )}
 

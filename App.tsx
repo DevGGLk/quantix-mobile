@@ -469,7 +469,7 @@ function AppInner() {
             <Stack.Screen
               name="ChecklistsEquipo"
               component={ChecklistsEquipoScreen}
-              options={{ title: 'Checklists de mi equipo' }}
+              options={{ title: 'Por revisar' }}
             />
             <Stack.Screen
               name="Planilla"

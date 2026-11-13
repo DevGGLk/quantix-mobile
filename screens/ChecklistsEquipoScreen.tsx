@@ -14,7 +14,6 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
-import { useAuth } from '../lib/AuthContext';
 import {
   FLAG_LABELS,
   ITEM_CONFIG_COLUMNS,
@@ -48,7 +47,7 @@ type Detalle = { items: ItemConfig[]; fotos: Record<string, string>; ordenes: Re
  * y checklist_crear_accion_correctiva, que validan permisos en la BD).
  */
 export default function ChecklistsEquipoScreen() {
-  const { employee } = useAuth();
+  const [rol, setRol] = useState<{ es_jefe: boolean; negocios: string[] } | null>(null);
   const [team, setTeam] = useState<Record<string, string>>({});
   const [envios, setEnvios] = useState<Envio[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,38 +58,27 @@ export default function ChecklistsEquipoScreen() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    if (!employee?.id) {
-      setLoading(false);
-      return;
-    }
-    const { data: t } = await supabase
-      .from('employees')
-      .select('id, first_name, last_name')
-      .or(`reports_to.eq.${employee.id},manager_id.eq.${employee.id}`)
-      .neq('id', employee.id);
+    // Bandeja del jefe directo y del responsable de negocio: la BD decide qué le toca.
+    const [{ data: rolData }, { data }] = await Promise.all([
+      supabase.rpc('checklist_mi_rol_revision'),
+      supabase.rpc('checklist_por_revisar'),
+    ]);
+    const r = ((rolData ?? []) as { es_jefe: boolean; negocios: string[] | null }[])[0];
+    setRol({ es_jefe: Boolean(r?.es_jefe), negocios: r?.negocios ?? [] });
+    const rows = (data ?? []) as unknown as (Envio & {
+      employees?: { first_name?: string | null; last_name?: string | null } | null;
+      branches?: { name?: string | null } | null;
+    })[];
     const map: Record<string, string> = {};
-    for (const e of (t ?? []) as { id: string; first_name: string | null; last_name: string | null }[]) {
-      map[e.id] = `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Colaborador';
+    for (const e of rows) {
+      map[e.employee_id] =
+        `${e.employees?.first_name ?? ''} ${e.employees?.last_name ?? ''}`.trim() +
+          (e.branches?.name ? ` · ${e.branches.name}` : '') || 'Colaborador';
     }
     setTeam(map);
-    const ids = Object.keys(map);
-    if (!ids.length) {
-      setEnvios([]);
-      setLoading(false);
-      return;
-    }
-    const { data } = await supabase
-      .from('checklist_submissions')
-      .select(
-        'id, checklist_id, employee_id, period_key, completion_percentage, score_pct, critical_failed, is_late, flags, submitted_at, metadata, checklists ( title )'
-      )
-      .in('employee_id', ids)
-      .eq('status', 'pending_approval')
-      .order('submitted_at', { ascending: false })
-      .limit(50);
-    setEnvios((data ?? []) as unknown as Envio[]);
+    setEnvios(rows);
     setLoading(false);
-  }, [employee?.id]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -186,13 +174,21 @@ export default function ChecklistsEquipoScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Checklists de mi equipo</Text>
+      <Text style={styles.title}>Checklists por revisar</Text>
+      {rol && (rol.es_jefe || rol.negocios.length > 0) ? (
+        <Text style={styles.muted}>
+          Te toca como {[rol.negocios.length ? `responsable de ${rol.negocios.join(', ')}` : null, rol.es_jefe ? 'jefe directo' : null]
+            .filter(Boolean)
+            .join(' · ')}
+          .
+        </Text>
+      ) : null}
       {loading ? (
         <ActivityIndicator color={theme.primary} style={{ marginTop: 20 }} />
-      ) : Object.keys(team).length === 0 ? (
-        <Text style={styles.muted}>No tienes personas a cargo asignadas.</Text>
+      ) : !rol || (!rol.es_jefe && rol.negocios.length === 0) ? (
+        <Text style={styles.muted}>No tienes checklists que revisar (no eres jefe directo ni responsable de un negocio).</Text>
       ) : envios.length === 0 ? (
-        <Text style={styles.muted}>No hay checklists de tu equipo por revisar. 🎉</Text>
+        <Text style={styles.muted}>No hay checklists por revisar. 🎉</Text>
       ) : (
         envios.map((e) => {
           const open = abierto === e.id;
