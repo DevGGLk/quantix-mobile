@@ -67,7 +67,8 @@ const navigationRef = createNavigationContainerRef<RootStackParamList>();
 type DestinoAviso =
   | { tab: 'Turnos'; params?: { weekStart?: string } }
   | { stack: 'Encuestas'; params?: { surveyId?: string } }
-  | { stack: 'Desempeno'; params?: undefined };
+  | { stack: 'Desempeno'; params?: undefined }
+  | { stack: 'Checklists'; params?: undefined };
 
 /**
  * Pestaña a abrir al tocar un push, según `data.category` (lo manda
@@ -84,6 +85,8 @@ function destinoParaAviso(data: unknown): DestinoAviso | null {
   }
   // Desempeño: autoevaluación, evaluaciones del equipo, recordatorios y resultados publicados.
   if (d?.category === 'desempeno') return { stack: 'Desempeno' };
+  // Checklist pendiente de hoy o devuelto para corregir.
+  if (d?.category === 'checklist_pendiente' || d?.category === 'checklist_rechazado') return { stack: 'Checklists' };
   // Publicación de semana, cambios de turno y turnos abiertos abren la pestaña Turnos.
   if (d?.category !== 'turnos_publicados' && d?.category !== 'cambio_turno' && d?.category !== 'turno_abierto') return null;
   const ws = typeof d.week_start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.week_start) ? d.week_start : undefined;
@@ -93,6 +96,7 @@ function destinoParaAviso(data: unknown): DestinoAviso | null {
 function navegarA(destino: DestinoAviso) {
   if ('stack' in destino) {
     if (destino.stack === 'Desempeno') navigationRef.navigate('Desempeno');
+    else if (destino.stack === 'Checklists') navigationRef.navigate('Checklists');
     else navigationRef.navigate(destino.stack, destino.params);
   }
   else navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
