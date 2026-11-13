@@ -34,7 +34,29 @@ type MiChecklist = {
   completion_percentage: number | string | null;
   rejected_reason: string | null;
   metadata: unknown;
+  ventana_inicio: string | null;
+  ventana_fin: string | null;
+  estado_ventana: 'antes' | 'abierta' | 'vencida' | null;
+  late_policy: string | null;
+  is_late: boolean | null;
 };
+
+function hora(iso: string | null): string {
+  if (!iso) return '';
+  // Hora de Nicaragua (UTC-6, sin horario de verano).
+  const d = new Date(new Date(iso).getTime() - 6 * 3600 * 1000);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+function ventanaTexto(c: MiChecklist): { text: string; color: string } | null {
+  if (c.estado_ventana === 'antes') return { text: `Se habilita a las ${hora(c.ventana_inicio)}`, color: '#64748b' };
+  if (c.estado_ventana === 'abierta') return { text: `Vence a las ${hora(c.ventana_fin)}`, color: '#047857' };
+  if (c.estado_ventana === 'vencida')
+    return c.late_policy === 'block'
+      ? { text: `Venció a las ${hora(c.ventana_fin)}`, color: '#dc2626' }
+      : { text: `Venció a las ${hora(c.ventana_fin)} · se enviará como tarde`, color: '#b45309' };
+  return null;
+}
 
 const FREQ_LABEL: Record<string, string> = {
   daily: 'Diario',
@@ -89,7 +111,12 @@ export default function ChecklistsScreen() {
   };
 
   const devueltos = rows.filter((r) => r.submission_status === 'rejected');
-  const pendientes = rows.filter((r) => !r.submission_id && r.aplica_hoy);
+  const pendientes = rows.filter(
+    (r) => !r.submission_id && r.aplica_hoy && !(r.estado_ventana === 'vencida' && r.late_policy === 'block')
+  );
+  const vencidos = rows.filter(
+    (r) => !r.submission_id && r.aplica_hoy && r.estado_ventana === 'vencida' && r.late_policy === 'block'
+  );
   const enviados = rows.filter((r) => r.submission_id && r.submission_status !== 'rejected');
 
   const abrir = (c: MiChecklist) =>
@@ -102,6 +129,8 @@ export default function ChecklistsScreen() {
         submission_status: c.submission_status,
         rejected_reason: c.rejected_reason,
         metadata: c.metadata,
+        ventana_fin: c.ventana_fin,
+        estado_ventana: c.estado_ventana,
       },
     });
 
@@ -156,20 +185,43 @@ export default function ChecklistsScreen() {
                 </Text>
               </View>
             ) : (
-              pendientes.map((c) => (
-                <TouchableOpacity key={c.id} style={styles.card} activeOpacity={0.85} onPress={() => abrir(c)}>
-                  <Text style={styles.cardTitle}>{c.title}</Text>
-                  <Text style={styles.cardCategory}>
-                    {FREQ_LABEL[c.frequency ?? ''] ?? 'Checklist'}
-                    {c.category ? ` · ${c.category}` : ''}
-                  </Text>
-                  <View style={styles.cardFooter}>
-                    <Text style={styles.cta}>Responder</Text>
-                    <Ionicons name="chevron-forward" size={18} color={theme.primary} />
-                  </View>
-                </TouchableOpacity>
-              ))
+              pendientes.map((c) => {
+                const info = ventanaTexto(c);
+                const antes = c.estado_ventana === 'antes';
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[styles.card, antes && { opacity: 0.6 }]}
+                    activeOpacity={0.85}
+                    disabled={antes}
+                    onPress={() => abrir(c)}
+                  >
+                    <Text style={styles.cardTitle}>{c.title}</Text>
+                    <Text style={styles.cardCategory}>
+                      {FREQ_LABEL[c.frequency ?? ''] ?? 'Checklist'}
+                      {c.category ? ` · ${c.category}` : ''}
+                    </Text>
+                    {info && <Text style={[styles.windowText, { color: info.color }]}>🕑 {info.text}</Text>}
+                    <View style={styles.cardFooter}>
+                      <Text style={styles.cta}>{antes ? 'Aún no' : 'Responder'}</Text>
+                      {!antes && <Ionicons name="chevron-forward" size={18} color={theme.primary} />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
             )}
+          </>
+        )}
+
+        {!isLoading && vencidos.length > 0 && (
+          <>
+            <Text style={[styles.section, { color: theme.textMuted }]}>Vencidos (ya no se pueden enviar)</Text>
+            {vencidos.map((c) => (
+              <View key={c.id} style={[styles.card, { opacity: 0.7 }]}>
+                <Text style={styles.cardTitle}>{c.title}</Text>
+                <Text style={[styles.windowText, { color: '#dc2626' }]}>Venció a las {hora(c.ventana_fin)}</Text>
+              </View>
+            ))}
           </>
         )}
 
@@ -183,6 +235,7 @@ export default function ChecklistsScreen() {
                   <Text style={styles.cardTitle}>{c.title}</Text>
                   <Text style={styles.cardCategory}>
                     {Math.round(Number(c.completion_percentage ?? 0) || 0)}% completado
+                    {c.is_late ? ' · enviado tarde' : ''}
                   </Text>
                   <Text style={[styles.badge, aprobado ? styles.badgeOk : styles.badgeWait]}>
                     {aprobado ? 'Aprobado' : 'Esperando aprobación'}
@@ -225,6 +278,7 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
   cardCategory: { marginTop: 4, fontSize: 13, color: theme.textSecondary },
   rejectedText: { marginTop: 6, fontSize: 13, color: '#b91c1c' },
+  windowText: { marginTop: 6, fontSize: 13, fontWeight: '600' },
   cardFooter: { marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
   cta: { fontSize: 14, fontWeight: '700', color: theme.primary },
   badge: {
