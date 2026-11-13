@@ -5,10 +5,15 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 /**
  * Checklist enviado a ResolverChecklist (misma forma que en ChecklistsScreen / Supabase).
  */
-export type ChecklistRouteParam = Record<string, unknown> & {
+export type ChecklistRouteParam = {
   id: string;
   title?: string | null;
   category?: string | null;
+  /** Estado del envío del período en curso (rejected = se puede corregir). */
+  submission_status?: string | null;
+  rejected_reason?: string | null;
+  /** metadata del envío (fotos ya enviadas, para precargar al corregir). */
+  metadata?: unknown;
 };
 
 /** Solicitud de préstamo enviada al detalle (misma forma que LoanRequestRow de lib/loansApi). */
