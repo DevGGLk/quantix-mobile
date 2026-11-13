@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackScreenNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
@@ -72,12 +73,44 @@ function daysBetween(a: string, b: string): number {
  * "Tomados/Programados" se rotulan como registrados en el sistema y, si el saldo
  * fue sembrado (importado), se muestra una nota aclaratoria.
  */
+type Solicitud = {
+  id: string;
+  request_type: string | null;
+  start_date: string;
+  end_date: string;
+  hora_inicio: string | null;
+  hora_fin: string | null;
+  status: string | null;
+};
+
+const ESTADO_LABEL: Record<string, string> = {
+  pendiente: 'Pendiente',
+  aprobada: 'Aprobada',
+  en_curso: 'En curso',
+  rechazada: 'Rechazada',
+  cancelada: 'Cancelada',
+  cerrada: 'Cerrada',
+};
+
+function hoyManagua(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Managua' }).format(new Date());
+}
+
+function rangoSolicitud(s: Solicitud): string {
+  const f = (ymd: string) => fmtFecha(ymd);
+  if (s.hora_inicio && s.hora_fin) return `${f(s.start_date)} · ${s.hora_inicio.slice(0, 5)}–${s.hora_fin.slice(0, 5)}`;
+  return s.start_date === s.end_date ? f(s.start_date) : `${f(s.start_date)} – ${f(s.end_date)}`;
+}
+
 export default function VacacionesScreen() {
   const navigation = useNavigation<StackScreenNavigation>();
   const { employeeRecord } = useAuth();
   const [balance, setBalance] = useState<VacBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  /** Auditoría 12/11/2026: la app no mostraba las solicitudes propias ni dejaba cancelarlas. */
+  const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
+  const [cancelando, setCancelando] = useState<string | null>(null);
 
   const empId = employeeRecord?.id ?? null;
   const hireDate =
@@ -96,12 +129,74 @@ export default function VacacionesScreen() {
     });
     if (!error && data) setBalance(data as VacBalance);
     else setBalance(null);
+    const { data: sol } = await supabase
+      .from('time_off_requests')
+      .select('id, request_type, start_date, end_date, hora_inicio, hora_fin, status')
+      .eq('employee_id', empId)
+      .order('start_date', { ascending: false })
+      .limit(15);
+    setSolicitudes((sol ?? []) as Solicitud[]);
     setLoading(false);
   }, [empId]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Al volver de «Nueva solicitud» se recarga la lista.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
+  const cancelable = (s: Solicitud) => {
+    const st = String(s.status ?? '').toLowerCase();
+    if (st === 'pendiente') return true;
+    return st === 'aprobada' && s.start_date > hoyManagua();
+  };
+
+  const cancelar = (s: Solicitud) => {
+    Alert.alert('Cancelar solicitud', `¿Cancelar tu solicitud de ${s.request_type ?? 'ausencia'} (${rangoSolicitud(s)})?`, [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Sí, cancelar',
+        style: 'destructive',
+        onPress: async () => {
+          setCancelando(s.id);
+          const { error } = await supabase.rpc('cancel_time_off_request', { p_request_id: s.id });
+          setCancelando(null);
+          if (error) {
+            Alert.alert('No se pudo cancelar', error.message.replace(/^cancel_time_off_request:\s*/, ''));
+            return;
+          }
+          Alert.alert('Solicitud cancelada', 'Si eran vacaciones aprobadas, los días volvieron a tu saldo.');
+          await load();
+        },
+      },
+    ]);
+  };
+
+  const misSolicitudes =
+    solicitudes.length > 0 ? (
+      <View style={styles.infoCard}>
+        <Text style={styles.solTitle}>Mis solicitudes</Text>
+        {solicitudes.map((s, i) => (
+          <View key={s.id}>
+            {i > 0 ? <View style={styles.infoDivider} /> : null}
+            <View style={styles.solRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoValue}>{s.request_type ?? 'Ausencia'}</Text>
+                <Text style={styles.infoLabel}>
+                  {rangoSolicitud(s)} · {ESTADO_LABEL[String(s.status ?? '').toLowerCase()] ?? s.status}
+                </Text>
+              </View>
+              {cancelable(s) ? (
+                <TouchableOpacity onPress={() => cancelar(s)} disabled={cancelando === s.id}>
+                  <Text style={styles.solCancel}>{cancelando === s.id ? 'Cancelando…' : 'Cancelar'}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        ))}
+      </View>
+    ) : null;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -190,8 +285,9 @@ export default function VacacionesScreen() {
             onPress={() => navigation.navigate('NuevaSolicitud')}
           >
             <Ionicons name="paper-plane-outline" size={20} color="#ffffff" />
-            <Text style={styles.ctaText}>Solicitar vacaciones</Text>
+            <Text style={styles.ctaText}>Solicitar vacaciones o permiso</Text>
           </TouchableOpacity>
+          {misSolicitudes}
         </>
       ) : (
         <View style={styles.emptyCard}>
@@ -205,8 +301,9 @@ export default function VacacionesScreen() {
             onPress={() => navigation.navigate('NuevaSolicitud')}
           >
             <Ionicons name="paper-plane-outline" size={20} color="#ffffff" />
-            <Text style={styles.ctaText}>Solicitar vacaciones</Text>
+            <Text style={styles.ctaText}>Solicitar vacaciones o permiso</Text>
           </TouchableOpacity>
+          {misSolicitudes}
         </View>
       )}
     </ScrollView>
@@ -214,6 +311,9 @@ export default function VacacionesScreen() {
 }
 
 const styles = StyleSheet.create({
+  solTitle: { fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 8 },
+  solRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
+  solCancel: { color: '#FF3F48', fontWeight: '700', fontSize: 13 },
   container: { flex: 1, backgroundColor: theme.background },
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.background },
