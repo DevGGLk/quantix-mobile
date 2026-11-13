@@ -70,7 +70,8 @@ type DestinoAviso =
   | { stack: 'Encuestas'; params?: { surveyId?: string } }
   | { stack: 'Desempeno'; params?: undefined }
   | { stack: 'Checklists'; params?: undefined }
-  | { stack: 'ChecklistsEquipo'; params?: undefined };
+  | { stack: 'ChecklistsEquipo'; params?: undefined }
+  | { stack: 'Vacaciones'; params?: undefined };
 
 /**
  * Pestaña a abrir al tocar un push, según `data.category` (lo manda
@@ -93,6 +94,9 @@ function destinoParaAviso(data: unknown): DestinoAviso | null {
   if (d?.category === 'checklist_por_aprobar' || (d?.category === 'checklist_alertas' && typeof d.url === 'string' && d.url.includes('equipo=1'))) {
     return { stack: 'ChecklistsEquipo' };
   }
+  // Vacaciones y permisos: solicitud del equipo por aprobar (jefe), decisión, recordatorios.
+  // La sección del equipo vive dentro de "Mis Vacaciones".
+  if (d?.category === 'vacaciones') return { stack: 'Vacaciones' };
   // Publicación de semana, cambios de turno y turnos abiertos abren la pestaña Turnos.
   if (d?.category !== 'turnos_publicados' && d?.category !== 'cambio_turno' && d?.category !== 'turno_abierto') return null;
   const ws = typeof d.week_start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.week_start) ? d.week_start : undefined;
@@ -104,6 +108,7 @@ function navegarA(destino: DestinoAviso) {
     if (destino.stack === 'Desempeno') navigationRef.navigate('Desempeno');
     else if (destino.stack === 'Checklists') navigationRef.navigate('Checklists');
     else if (destino.stack === 'ChecklistsEquipo') navigationRef.navigate('ChecklistsEquipo');
+    else if (destino.stack === 'Vacaciones') navigationRef.navigate('Vacaciones');
     else navigationRef.navigate(destino.stack, destino.params);
   }
   else navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
