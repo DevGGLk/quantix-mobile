@@ -252,9 +252,14 @@ export default function ResolverChecklistScreen() {
       });
       if (error) throw new Error(error.message);
       await AsyncStorage.removeItem(draftKey);
-      const r = (data ?? {}) as { completion_percentage?: number; score_pct?: number; critical_failed?: boolean };
+      const r = (data ?? {}) as {
+        completion_percentage?: number;
+        score_pct?: number;
+        critical_failed?: boolean;
+        is_late?: boolean;
+      };
       Alert.alert(
-        'Checklist enviado',
+        r.is_late ? 'Checklist enviado (tarde)' : 'Checklist enviado',
         `Completado ${Math.round(Number(r.completion_percentage ?? 0))}% · calidad ${Number(r.score_pct ?? 0)}%.` +
           (r.critical_failed ? '\n\nOjo: una tarea crítica no se cumplió.' : '') +
           '\nQueda esperando aprobación.',
@@ -284,6 +289,10 @@ export default function ResolverChecklistScreen() {
           <Text style={styles.pending}>
             {pendientesSubir} foto{pendientesSubir === 1 ? '' : 's'} sin subir (sin internet). Se subirán al enviar.
           </Text>
+        )}
+
+        {checklist?.estado_ventana === 'vencida' && (
+          <Text style={styles.pending}>Ya pasó la hora límite: se enviará marcado como tarde.</Text>
         )}
 
         {devuelto && (

@@ -14,6 +14,9 @@ export type ChecklistRouteParam = {
   period_key?: string | null;
   submission_status?: string | null;
   rejected_reason?: string | null;
+  /** Ventana horaria (ronda 3). */
+  ventana_fin?: string | null;
+  estado_ventana?: 'antes' | 'abierta' | 'vencida' | null;
   /** metadata del envío (fotos ya enviadas, para precargar al corregir). */
   metadata?: unknown;
 };
