@@ -12,6 +12,7 @@ import { theme } from './lib/theme';
 import { decideOnboardingGate } from './lib/onboardingGate';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
 import OnboardingScreen from './screens/OnboardingScreen';
+import DobleFactorScreen from './screens/DobleFactorScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { ThemeProvider, useTheme } from './theme';
 import { supabase } from './lib/supabase';
@@ -240,9 +241,36 @@ function MainTabs() {
   );
 }
 
+/** B3: roles que exigen doble factor (igual que la web y la base de datos). */
+const MFA_ROLES = new Set(['admin', 'hr', 'superadmin', 'accountant', 'auditor', 'ceo']);
+
 function AppInner() {
-  const { session, isLoading, employee, isOperativeEmployee } = useAuth();
+  const { session, isLoading, employee, isOperativeEmployee, profile } = useAuth();
   const [onboardingGate, setOnboardingGate] = useState<OnboardingGateState>('loading');
+  // B3: 'pendiente' = falta el código; 'ok' = sesión con código o rol que no lo exige;
+  // 'solo_portal' = eligió seguir sin código (la base de datos le da lo de un colaborador).
+  const [mfaGate, setMfaGate] = useState<'revisando' | 'pendiente' | 'ok' | 'solo_portal'>('revisando');
+
+  useEffect(() => {
+    let cancel = false;
+    const role = (profile?.role ?? '').toLowerCase();
+    if (!session) {
+      setMfaGate('revisando');
+      return;
+    }
+    if (!profile) return;
+    if (!MFA_ROLES.has(role)) {
+      setMfaGate('ok');
+      return;
+    }
+    void supabase.auth.mfa.getAuthenticatorAssuranceLevel().then(({ data }) => {
+      if (cancel) return;
+      setMfaGate((prev) => (data?.currentLevel === 'aal2' ? 'ok' : prev === 'solo_portal' ? prev : 'pendiente'));
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [session?.user?.id, session?.access_token, profile?.id, profile?.role]);
 
   // Tocar un push abre su pestaña. Si la navegación aún no está montada
   // (arranque en frío, login, onboarding) queda pendiente hasta onReady.
@@ -389,6 +417,14 @@ function AppInner() {
     return (
       <SafeAreaProvider>
         <LoginScreen />
+      </SafeAreaProvider>
+    );
+  }
+
+  if (mfaGate === 'pendiente') {
+    return (
+      <SafeAreaProvider>
+        <DobleFactorScreen onDone={() => setMfaGate('ok')} onSkip={() => setMfaGate('solo_portal')} />
       </SafeAreaProvider>
     );
   }
