@@ -70,7 +70,17 @@ type WO = {
   requester_comment: string | null;
   reopened_count: number;
   created_at: string;
+  due_at: string | null;
 };
+
+/** «Vence en 3 h» / «Vencida hace 2 h» (solo órdenes abiertas). */
+function sla(o: WO): { text: string; color: string } | null {
+  if (!o.due_at || !['open', 'assigned', 'in_progress'].includes(o.status)) return null;
+  const mins = Math.round((new Date(o.due_at).getTime() - Date.now()) / 60_000);
+  const fmt = (m: number) => (m < 60 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} días`);
+  if (mins < 0) return { text: `Vencida hace ${fmt(-mins)}`, color: '#dc2626' };
+  return { text: `Vence en ${fmt(mins)}`, color: mins < 120 ? '#d97706' : '#64748b' };
+}
 type Member = { work_order_id: string; employee_id: string; role: 'responsable' | 'apoyo' };
 type Tech = { employee_id: string; employee_name: string | null };
 type Branch = { id: string; name: string; company_id: string };
@@ -398,6 +408,10 @@ export default function MantenimientoScreen() {
                       <Text style={[styles.pill, { backgroundColor: pr.color }]}>{pr.label}</Text>
                       <Text style={styles.small}>{STATUS[o.status]}</Text>
                       {role && <Text style={styles.small}>· {role === 'responsable' ? 'Responsable' : 'Apoyo'}</Text>}
+                      {(() => {
+                        const s = sla(o);
+                        return s ? <Text style={[styles.pill, { backgroundColor: s.color }]}>⏱ {s.text}</Text> : null;
+                      })()}
                     </View>
                     <Text style={styles.itemTitle}>{o.title}</Text>
                     <Text style={styles.small}>
