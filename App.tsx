@@ -13,6 +13,9 @@ import { decideOnboardingGate } from './lib/onboardingGate';
 import { OnboardingGateContext } from './lib/OnboardingGateContext';
 import OnboardingScreen from './screens/OnboardingScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
+import { AvisosProvider, badgeText, useAvisos } from './lib/AvisosContext';
+import MantenimientoScreen from './screens/MantenimientoScreen';
+import AvisosScreen from './screens/AvisosScreen';
 import { ThemeProvider, useTheme } from './theme';
 import { supabase } from './lib/supabase';
 // Registra la tarea de ubicación en segundo plano al arrancar: Android la despierta
@@ -51,6 +54,7 @@ import MisPagosScreen from './screens/MisPagosScreen';
 import EncuestasScreen from './screens/EncuestasScreen';
 import DesempenoScreen from './screens/DesempenoScreen';
 import type { MainTabParamList, RootStackParamList } from './types/navigation';
+import { abrirDestino, destinoParaAviso, type DestinoAviso } from './lib/avisoDestino';
 import { initSentryFromEnv } from './lib/sentryInit';
 
 initSentryFromEnv();
@@ -65,53 +69,8 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-type DestinoAviso =
-  | { tab: 'Turnos'; params?: { weekStart?: string } }
-  | { stack: 'Encuestas'; params?: { surveyId?: string } }
-  | { stack: 'Desempeno'; params?: undefined }
-  | { stack: 'Checklists'; params?: undefined }
-  | { stack: 'ChecklistsEquipo'; params?: undefined }
-  | { stack: 'Vacaciones'; params?: undefined };
-
-/**
- * Pestaña a abrir al tocar un push, según `data.category` (lo manda
- * /api/cron/notifications-dispatch). null = solo abrir la app.
- * `turnos_publicados` trae `week_start`: se abre esa semana, que casi siempre
- * es la siguiente y no la actual.
- */
-function destinoParaAviso(data: unknown): DestinoAviso | null {
-  const d = data as { category?: unknown; week_start?: unknown; url?: unknown } | null;
-  // Encuesta nueva o recordatorio: abre la encuesta (el id viene en la url /mi-portal?encuesta=<id>).
-  if (d?.category === 'encuesta') {
-    const m = typeof d.url === 'string' ? /[?&]encuesta=([0-9a-f-]{36})/i.exec(d.url) : null;
-    return { stack: 'Encuestas', params: m ? { surveyId: m[1] } : undefined };
-  }
-  // Desempeño: autoevaluación, evaluaciones del equipo, recordatorios y resultados publicados.
-  if (d?.category === 'desempeno') return { stack: 'Desempeno' };
-  // Checklist pendiente de hoy o devuelto para corregir.
-  if (d?.category === 'checklist_pendiente' || d?.category === 'checklist_rechazado') return { stack: 'Checklists' };
-  // Jefe directo: envío del equipo por revisar o incumplimiento de su gente.
-  if (d?.category === 'checklist_por_aprobar' || (d?.category === 'checklist_alertas' && typeof d.url === 'string' && d.url.includes('equipo=1'))) {
-    return { stack: 'ChecklistsEquipo' };
-  }
-  // Vacaciones y permisos: solicitud del equipo por aprobar (jefe), decisión, recordatorios.
-  // La sección del equipo vive dentro de "Mis Vacaciones".
-  if (d?.category === 'vacaciones') return { stack: 'Vacaciones' };
-  // Publicación de semana, cambios de turno y turnos abiertos abren la pestaña Turnos.
-  if (d?.category !== 'turnos_publicados' && d?.category !== 'cambio_turno' && d?.category !== 'turno_abierto') return null;
-  const ws = typeof d.week_start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.week_start) ? d.week_start : undefined;
-  return { tab: 'Turnos', params: ws ? { weekStart: ws } : undefined };
-}
-
 function navegarA(destino: DestinoAviso) {
-  if ('stack' in destino) {
-    if (destino.stack === 'Desempeno') navigationRef.navigate('Desempeno');
-    else if (destino.stack === 'Checklists') navigationRef.navigate('Checklists');
-    else if (destino.stack === 'ChecklistsEquipo') navigationRef.navigate('ChecklistsEquipo');
-    else if (destino.stack === 'Vacaciones') navigationRef.navigate('Vacaciones');
-    else navigationRef.navigate(destino.stack, destino.params);
-  }
-  else navigationRef.navigate('MainTabs', { screen: destino.tab, params: destino.params });
+  abrirDestino(navigationRef as unknown as Parameters<typeof abrirDestino>[0], destino);
 }
 
 const TAB_ICONS = {
@@ -155,6 +114,7 @@ function AuthRecordsBannerBar() {
 }
 
 function MainTabs() {
+  const { unread } = useAvisos();
   const { employee } = useAuth();
   const { palette } = useTheme();
   // Regla de marca: nav activa = índigo; barra clara con borde superior sutil.
@@ -221,7 +181,11 @@ function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Inicio' }} />
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ title: 'Inicio', tabBarBadge: badgeText(unread), tabBarBadgeStyle: { backgroundColor: '#E24B4A' } }}
+      />
       <Tab.Screen name="Turnos" component={TurnosScreen} options={{ title: 'Turnos' }} />
       {aiAssistantEnabled && (
         <Tab.Screen
@@ -566,6 +530,16 @@ function AppInner() {
               component={DesempenoScreen}
               options={{ title: 'Mi desempeño' }}
             />
+            <Stack.Screen
+              name="Mantenimiento"
+              component={MantenimientoScreen}
+              options={{ title: 'Mantenimiento' }}
+            />
+            <Stack.Screen
+              name="Avisos"
+              component={AvisosScreen}
+              options={{ title: 'Avisos' }}
+            />
           </Stack.Navigator>
         </NavigationContainer>
         </View>
@@ -581,7 +555,9 @@ function App() {
     // Paso final del rediseño, cuando todo consuma useTheme(): volver a "system".
     <ThemeProvider defaultPreference="light">
       <AuthProvider>
-        <AppInner />
+        <AvisosProvider>
+          <AppInner />
+        </AvisosProvider>
       </AuthProvider>
     </ThemeProvider>
   );

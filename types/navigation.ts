@@ -97,6 +97,10 @@ export type RootStackParamList = {
   /** `surveyId` abre esa encuesta (p. ej. al tocar el aviso «Nueva encuesta»). */
   Encuestas: { surveyId?: string } | undefined;
   Desempeno: undefined;
+  /** Reportar arreglos, confirmar y (técnicos) atender órdenes. */
+  Mantenimiento: undefined;
+  /** Buzón de avisos (campanita). */
+  Avisos: undefined;
 };
 
 export type RootStackNavigation = NativeStackNavigationProp<RootStackParamList>;
