@@ -146,6 +146,15 @@ export default function ServiciosScreen() {
           <Text style={styles.cardLabel}>Mis Activos Asignados</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('Mantenimiento')}
+        >
+          <Ionicons name="construct-outline" size={32} color="#d97706" />
+          <Text style={styles.cardLabel}>Mantenimiento</Text>
+        </TouchableOpacity>
+
         {companySettings?.enable_checklists === true && (
           <TouchableOpacity
             style={styles.card}

@@ -38,6 +38,7 @@ import {
 import { theme } from '../lib/theme';
 import { parseBranchGeo, type BranchGeo } from '../lib/geo';
 import { useAuth } from '../lib/AuthContext';
+import { badgeText, useAvisos } from '../lib/AvisosContext';
 import { errorMessage } from '../lib/errorMessage';
 import { fetchMarkingPoints, nearestMarkingPoint, type MarkingPoint } from '../lib/markingPlaces';
 import { obtenerUbicacionParaEntrada, PRECISION_ACEPTABLE_M } from '../lib/ubicacionEntrada';
@@ -52,7 +53,7 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true, // el número del globo viene del servidor (avisos sin leer)
     shouldShowBanner: true,
     shouldShowList: true,
   }),
@@ -281,6 +282,7 @@ async function sendClockInToServer(body: ClockInSendBody): Promise<ClockInSendRe
 
 export default function HomeScreen() {
   const navigation = useNavigation<TabCompositeNavigation<'Home'>>();
+  const { unread: unreadAvisos } = useAvisos();
   const { session, authProfile, employee, refreshProfile, isOperativeEmployee } = useAuth();
   const employeeGpsConsent = employee?.is_gps_tracking_enabled === true;
   const employeeRecordId = employee?.id ?? null;
@@ -1421,6 +1423,20 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.bellButton}
+          onPress={() => navigation.navigate('Avisos')}
+          accessibilityRole="button"
+          accessibilityLabel={unreadAvisos > 0 ? `Avisos: ${unreadAvisos} sin leer` : 'Avisos'}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name={unreadAvisos > 0 ? 'notifications' : 'notifications-outline'} size={26} color={theme.primary} />
+          {unreadAvisos > 0 && (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText}>{badgeText(unreadAvisos)}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
         {isLoadingPerfil ? (
           <View style={styles.headerLoading}>
             <ActivityIndicator size="small" color={theme.primary} />
@@ -1695,6 +1711,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     backgroundColor: theme.background,
   },
+  bellButton: { position: 'absolute', right: 20, top: 16, zIndex: 2, padding: 4 },
+  bellBadge: {
+    position: 'absolute',
+    right: -2,
+    top: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: theme.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: theme.background,
+  },
+  bellBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   homeErrorWrap: {
     paddingHorizontal: 24,
     marginTop: 8,
