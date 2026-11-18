@@ -139,6 +139,15 @@ async function registerForPushNotificationsAsync(userId: string): Promise<void> 
   try {
     if (!Device.isDevice) return;
 
+    // Android 13+: sin un canal creado no aparece el permiso de notificaciones.
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Avisos',
+        importance: Notifications.AndroidImportance.HIGH,
+        showBadge: true,
+      });
+    }
+
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
@@ -149,7 +158,9 @@ async function registerForPushNotificationsAsync(userId: string): Promise<void> 
 
     if (finalStatus !== 'granted') return;
 
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
     const { error: pushProfileErr } = await supabase
       .from('profiles')
       .update({ push_token: token })
