@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "25496889773",
+    "project_id": "quantixhr-push",
+    "storage_bucket": "quantixhr-push.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:25496889773:android:070a866ca0d20dfdca1924",
+        "android_client_info": {
+          "package_name": "com.ggl.quantixhr"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-g89I70aHCS7h_u-KzO2HsEyDzO3JW30"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
