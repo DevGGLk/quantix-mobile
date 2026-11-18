@@ -95,7 +95,7 @@ export default function ServiciosScreen() {
           activeOpacity={0.85}
           onPress={() => navigation.navigate('Vacaciones')}
         >
-          <Ionicons name="airplane-outline" size={32} color="#3C3489" />
+          <Ionicons name="airplane-outline" size={32} color="#5B4DD4" />
           <Text style={styles.cardLabel}>Mis Vacaciones</Text>
         </TouchableOpacity>
 

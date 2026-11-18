@@ -184,7 +184,7 @@ function MainTabs() {
       <Tab.Screen
         name="Home"
         component={HomeScreen}
-        options={{ title: 'Inicio', tabBarBadge: badgeText(unread), tabBarBadgeStyle: { backgroundColor: '#E24B4A' } }}
+        options={{ title: 'Inicio', tabBarBadge: badgeText(unread), tabBarBadgeStyle: { backgroundColor: '#FF3F48' } }}
       />
       <Tab.Screen name="Turnos" component={TurnosScreen} options={{ title: 'Turnos' }} />
       {aiAssistantEnabled && (

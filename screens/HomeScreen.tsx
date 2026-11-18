@@ -1516,97 +1516,52 @@ export default function HomeScreen() {
           <CongratsBanner companyId={companyId} />
           <EncuestasPendientesCard companyId={companyId} />
           <DesempenoPendienteCard />
-          <View style={styles.clockSectionHeader}>
-            <Text style={styles.clockSectionTitle}>Reloj checador</Text>
-            <TouchableOpacity
-              onPress={() => setHelpGpsVisible(true)}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityLabel="Ayuda sobre privacidad y GPS"
-              accessibilityRole="button"
-            >
-              <Ionicons name="information-circle-outline" size={24} color={theme.textMuted} />
-            </TouchableOpacity>
-          </View>
-          {isClockedIn && activeClockInAt ? (
-            <WorkedTimeChronometer clockInAt={activeClockInAt} onPause={isOnPause} />
-          ) : null}
-          {/* Con varios puntos asignados, no saber en cuál quedó registrado el marcaje es
-              justamente lo que dejaba la pantalla en blanco. */}
-          {isClockedIn && activeMarkingPlace ? (
-            <Text style={styles.markingPlaceLabel}>Marcaste en {activeMarkingPlace}</Text>
-          ) : null}
-          {employeeGpsConsent && gpsConsentSigned === false ? (
-            <View style={styles.gpsConsentNotice}>
-              <Ionicons name="location-outline" size={18} color={theme.warning} />
-              <Text style={styles.gpsConsentNoticeText}>
-                Tu empresa activó el rastreo de ubicación durante la jornada. No se envía nada hasta que
-                aceptes el consentimiento en Mi Portal (versión web).
-              </Text>
-            </View>
-          ) : null}
-          {!isClockedIn ? (
-            <TouchableOpacity
-              style={[
-                styles.mainButton,
-                styles.mainButtonCheckedOut,
-                isPunching && styles.mainButtonPunching,
-              ]}
-              activeOpacity={0.85}
-              onPress={handleClockIn}
-              disabled={isPunching || isLoadingClockStatus || isLoadingPerfil}
-            >
-              {isPunching ? (
-                <ActivityIndicator color={theme.backgroundAlt} />
-              ) : (
-                <Text style={styles.mainButtonText}>📍 Marcar Entrada</Text>
-              )}
-            </TouchableOpacity>
-          ) : isOnPause ? (
-            <View style={styles.clockInColumn}>
+          {/* Tarjeta «Cronómetro» con el mismo diseño que Mi Portal en la web. */}
+          <View style={styles.clockCard}>
+            <View style={styles.clockSectionHeader}>
+              <Text style={styles.clockSectionTitle}>Cronómetro</Text>
               <TouchableOpacity
-                style={[styles.pauseResumeButton, isPauseActionLoading && styles.btnMuted]}
-                activeOpacity={0.85}
-                onPress={() => handlePauseToggle('end')}
-                disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
+                onPress={() => setHelpGpsVisible(true)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Ayuda sobre privacidad y GPS"
+                accessibilityRole="button"
               >
-                {isPauseActionLoading ? (
-                  <ActivityIndicator color={theme.backgroundAlt} />
-                ) : (
-                  <Text style={styles.pauseResumeText}>▶️ Regresar de Pausa</Text>
-                )}
+                <Ionicons name="information-circle-outline" size={22} color={theme.textMuted} />
               </TouchableOpacity>
+            </View>
+            <WorkedTimeChronometer clockInAt={isClockedIn ? activeClockInAt : null} onPause={isOnPause} />
+            {/* Con varios puntos asignados, no saber en cuál quedó registrado el marcaje es
+                justamente lo que dejaba la pantalla en blanco. */}
+            {isClockedIn && activeMarkingPlace ? (
+              <Text style={styles.markingPlaceLabel}>
+                Marcaste en <Text style={styles.markingPlaceStrong}>{activeMarkingPlace}</Text>
+              </Text>
+            ) : null}
+            {employeeGpsConsent && gpsConsentSigned === false ? (
+              <View style={styles.gpsConsentNotice}>
+                <Ionicons name="location-outline" size={18} color={theme.warning} />
+                <Text style={styles.gpsConsentNoticeText}>
+                  Tu empresa activó el rastreo de ubicación durante la jornada. No se envía nada hasta que
+                  aceptes el consentimiento en Mi Portal (versión web).
+                </Text>
+              </View>
+            ) : null}
+            {!isClockedIn ? (
               <TouchableOpacity
-                style={[
-                  styles.mainButton,
-                  styles.mainButtonCheckedIn,
-                  (isPunching || isPauseActionLoading) && styles.mainButtonPunching,
-                ]}
+                style={[styles.mainButton, styles.mainButtonCheckedOut, isPunching && styles.mainButtonPunching]}
                 activeOpacity={0.85}
-                onPress={confirmarSalida}
-                disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
+                onPress={handleClockIn}
+                disabled={isPunching || isLoadingClockStatus || isLoadingPerfil}
+                accessibilityRole="button"
               >
                 {isPunching ? (
                   <ActivityIndicator color={theme.backgroundAlt} />
                 ) : (
-                  <Text style={styles.mainButtonText}>🛑 Marcar Salida</Text>
+                  <Text style={styles.mainButtonText}>▶  Marcar Entrada</Text>
                 )}
               </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.clockInColumn}>
-              <View style={styles.rowActions}>
-                <TouchableOpacity
-                  style={[styles.secondaryRound, isPauseActionLoading && styles.btnMuted]}
-                  activeOpacity={0.85}
-                  onPress={() => handlePauseToggle('start')}
-                  disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
-                >
-                  {isPauseActionLoading ? (
-                    <ActivityIndicator color={theme.backgroundAlt} />
-                  ) : (
-                    <Text style={styles.secondaryRoundText}>⏸{'\n'}Iniciar{'\n'}Pausa</Text>
-                  )}
-                </TouchableOpacity>
+            ) : (
+              <View style={styles.clockInColumn}>
                 <TouchableOpacity
                   style={[
                     styles.mainButton,
@@ -1616,16 +1571,30 @@ export default function HomeScreen() {
                   activeOpacity={0.85}
                   onPress={confirmarSalida}
                   disabled={isPunching || isPauseActionLoading || isLoadingClockStatus}
+                  accessibilityRole="button"
                 >
                   {isPunching ? (
                     <ActivityIndicator color={theme.backgroundAlt} />
                   ) : (
-                    <Text style={styles.mainButtonText}>🛑 Marcar Salida</Text>
+                    <Text style={styles.mainButtonText}>⏹  Marcar Salida</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.pauseResumeButton, isPauseActionLoading && styles.btnMuted]}
+                  activeOpacity={0.85}
+                  onPress={() => handlePauseToggle(isOnPause ? 'end' : 'start')}
+                  disabled={isPauseActionLoading || isPunching || isLoadingClockStatus}
+                  accessibilityRole="button"
+                >
+                  {isPauseActionLoading ? (
+                    <ActivityIndicator color={theme.textPrimary} />
+                  ) : (
+                    <Text style={styles.pauseResumeText}>{isOnPause ? '▶  Regresar de Pausa' : '⏸  Iniciar Pausa'}</Text>
                   )}
                 </TouchableOpacity>
               </View>
-            </View>
-          )}
+            )}
+          </View>
         </View>
 
         <View style={styles.hubSection}>
@@ -1801,32 +1770,25 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   content: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
     width: '100%',
     backgroundColor: theme.background,
   },
   clockSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 12,
     width: '100%',
-    backgroundColor: theme.background,
   },
   clockSectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '600',
     color: theme.textPrimary,
   },
   clockInColumn: {
-    alignItems: 'center',
     width: '100%',
-    maxWidth: 400,
-    alignSelf: 'center',
-    gap: 16,
+    gap: 10,
   },
   rowActions: {
     flexDirection: 'row',
@@ -1859,54 +1821,64 @@ const styles = StyleSheet.create({
   },
   pauseResumeButton: {
     width: '100%',
-    maxWidth: 320,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    borderRadius: theme.cardBorderRadius,
-    backgroundColor: theme.warning,
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.background,
     alignItems: 'center',
     justifyContent: 'center',
-    ...SOFT_UI_SHADOW,
   },
   pauseResumeText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: theme.backgroundAlt,
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.textPrimary,
   },
   btnMuted: {
     opacity: 0.75,
   },
   mainButton: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    flexShrink: 0,
+    width: '100%',
+    paddingVertical: 15,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     ...SOFT_UI_SHADOW,
   },
   mainButtonCheckedOut: {
-    backgroundColor: theme.success,
+    backgroundColor: theme.primary,
   },
   mainButtonCheckedIn: {
-    backgroundColor: theme.danger,
+    backgroundColor: theme.warning,
   },
   mainButtonPunching: {
     opacity: 0.9,
   },
   mainButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
     color: theme.backgroundAlt,
     textAlign: 'center',
-    paddingHorizontal: 8,
+  },
+  clockCard: {
+    width: '100%',
+    backgroundColor: theme.card,
+    borderRadius: theme.cardBorderRadius,
+    borderWidth: 1,
+    borderColor: theme.cardBorder,
+    padding: 16,
+    marginTop: 4,
+    ...SOFT_UI_SHADOW,
+  },
+  markingPlaceStrong: {
+    fontWeight: '600',
+    color: theme.textPrimary,
   },
   markingPlaceLabel: {
-    fontSize: 13,
-    color: theme.textMuted,
-    textAlign: 'center',
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginTop: -4,
     marginBottom: 12,
-    paddingHorizontal: 8,
   },
   gpsConsentNotice: {
     flexDirection: 'row',
