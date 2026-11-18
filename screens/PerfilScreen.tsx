@@ -27,13 +27,13 @@ import { stopBackgroundTracking } from '../lib/backgroundLocation';
 // Paleta VIP Zone alineada al portal web QuantixHR
 const VIP = {
   // Fondo general muy claro (área de contenido)
-  bgScreen: '#F3F4F6',
+  bgScreen: '#F8FAFC',
   // Tarjetas y superficies principales (blanco limpio)
   cardLavender: '#FFFFFF',
   // Color protagonista de la tarjeta de saldo (índigo de marca)
-  purpleDeep: '#3C3489',
+  purpleDeep: '#5B4DD4',
   // Texto principal sobre fondos claros
-  textOnLight: '#1E293B',
+  textOnLight: '#1A1733',
   // Texto secundario/gris suave
   textMuted: '#64748B',
   // Botones de acción destacados (naranja corporativo)
@@ -409,7 +409,7 @@ export default function PerfilScreen() {
                 {typeof vacationDays === 'number' ? vacationDays : '—'}
               </Text>
             </Text>
-            <Text style={{ color: '#3C3489', fontSize: 13, fontWeight: '600', marginTop: 4 }}>
+            <Text style={{ color: '#5B4DD4', fontSize: 13, fontWeight: '600', marginTop: 4 }}>
               Ver detalle de vacaciones →
             </Text>
           </TouchableOpacity>

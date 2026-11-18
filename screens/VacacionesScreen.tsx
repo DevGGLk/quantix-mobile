@@ -417,7 +417,7 @@ const styles = StyleSheet.create({
   solTitle: { fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 8 },
   solRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   solCancel: { color: '#FF3F48', fontWeight: '700', fontSize: 13 },
-  solApprove: { color: '#1D9E75', fontWeight: '700', fontSize: 13, marginRight: 16 },
+  solApprove: { color: '#047857', fontWeight: '700', fontSize: 13, marginRight: 16 },
   container: { flex: 1, backgroundColor: theme.background },
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.background },

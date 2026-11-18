@@ -55,7 +55,7 @@ type HoursReport = {
 type ChartDay = DayRow & { dayLabel: string; weekday: string };
 
 // Paleta validada (dataviz six-checks) sobre superficie blanca
-const COLOR_NORMAL = '#6C5CE7';
+const COLOR_NORMAL = '#5B4DD4';
 const COLOR_APROBADA = '#0D9488';
 const COLOR_PENDIENTE = '#D97706';
 

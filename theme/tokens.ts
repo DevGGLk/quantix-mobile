@@ -13,11 +13,11 @@
 
 /** MARCA · Índigo — identidad, headers, navegación activa. */
 export const brand = {
-  darkest: '#26215C',
-  base: '#3C3489',
+  darkest: '#1A1733',
+  base: '#5B4DD4',
   light: '#534AB7',
-  subtle: '#CECBF6',
-  tint: '#EEEDFE',
+  subtle: '#C4BCF5',
+  tint: '#EFEDFB',
 } as const;
 
 /** ACCIÓN · Violeta — botones primarios, CTAs, confirmaciones. (Emparenta con Qardax.) */
@@ -26,7 +26,7 @@ export const action = {
   base: '#5B4DD4',
   bright: '#6C5CE7',
   subtle: '#C4BCF5',
-  tint: '#EEEBFB',
+  tint: '#EFEDFB',
 } as const;
 
 /** LOGROS · Ámbar — exclusivo gamificación (puntos, copas, insignias). */
@@ -44,31 +44,31 @@ export const achievement = {
  * (ver nota DARK_SEMANTIC_SURFACE) sin inventar hex.
  */
 export const semantic = {
-  success: { color: '#1D9E75', surface: '#E1F5EE', text: '#085041' },
-  warning: { color: '#EF9F27', surface: '#FAEEDA', text: '#633806' }, // almuerzo/permiso pendiente
-  danger: { color: '#E24B4A', surface: '#FCEBEB', text: '#791F1F' }, // marcar salida, cerrar sesión
-  info: { color: '#378ADD', surface: '#E6F1FB', text: '#0C447C' },
+  success: { color: '#059669', surface: '#ECFDF5', text: '#047857' },
+  warning: { color: '#FF9F43', surface: '#FFF4E8', text: '#C46A14' }, // almuerzo/permiso pendiente
+  danger: { color: '#FF3F48', surface: '#FEF2F2', text: '#B91C1C' }, // marcar salida, cerrar sesión
+  info: { color: '#3B82F6', surface: '#EFF6FF', text: '#1E40AF' },
 } as const;
 
 /** NEUTROS · modo LIGHT. (El fondo de pantalla = surface.sunken off-white.) */
 export const neutralLight = {
   surfaceCard: '#FFFFFF',
-  surfaceSunken: '#F1EFE8',
-  textPrimary: '#211F2E',
-  textSecondary: '#5F5E66',
-  textTertiary: '#9D9CA6',
-  border: '#D3D1C7',
+  surfaceSunken: '#F8FAFC',
+  textPrimary: '#1A1733',
+  textSecondary: '#64748B',
+  textTertiary: '#94A3B8',
+  border: '#E2E8F0',
 } as const;
 
 /** NEUTROS · modo DARK. (El índigo se profundiza; las superficies invierten.) */
 export const neutralDark = {
-  background: '#1A1830',
-  surfaceCard: '#211E3A',
-  surfaceSunken: '#252245',
-  textPrimary: '#ECEBF5',
-  textSecondary: '#A6A4BC',
-  textTertiary: '#6E6C84',
-  border: '#2A2745',
+  background: '#0F172A',
+  surfaceCard: '#1E293B',
+  surfaceSunken: '#0F172A',
+  textPrimary: '#F1F5F9',
+  textSecondary: '#94A3B8',
+  textTertiary: '#64748B',
+  border: '#334155',
 } as const;
 
 /** Constantes neutras puras. */
@@ -76,5 +76,5 @@ export const common = {
   white: '#FFFFFF',
   black: '#000000',
   /** Backdrop de modales — overlay translúcido sobre el índigo más profundo. */
-  backdrop: 'rgba(38, 33, 92, 0.55)',
+  backdrop: 'rgba(15, 23, 42, 0.7)',
 } as const;
