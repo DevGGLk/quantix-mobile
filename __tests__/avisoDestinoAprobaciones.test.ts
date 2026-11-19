@@ -16,6 +16,9 @@ describe('avisos de «Quién aprueba qué»', () => {
   it('avisos del préstamo (firmar, desembolso) abren Mis préstamos', () => {
     expect(destinoParaAviso({ category: 'prestamo_firmar' })).toEqual({ stack: 'Prestamos' });
   });
+  it('descuento disciplinario por aceptar abre Mi disciplina', () => {
+    expect(destinoParaAviso({ category: 'disciplina', url: '/mi-portal/disciplina' })).toEqual({ stack: 'MiDisciplina' });
+  });
   it('lo demás no cambia', () => {
     expect(destinoParaAviso({ category: 'vacaciones' })).toEqual({ stack: 'Vacaciones' });
     expect(destinoParaAviso({ category: 'otra_cosa' })).toBeNull();

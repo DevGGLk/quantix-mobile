@@ -12,7 +12,8 @@ export type DestinoAviso =
   | { stack: 'Mantenimiento'; params?: undefined }
   | { stack: 'PorAprobar'; params?: undefined }
   | { stack: 'Adelantos'; params?: undefined }
-  | { stack: 'Prestamos'; params?: undefined };
+  | { stack: 'Prestamos'; params?: undefined }
+  | { stack: 'MiDisciplina'; params?: undefined };
 
 /**
  * Pestaña a abrir al tocar un push, según `data.category` (lo manda
@@ -48,6 +49,8 @@ export function destinoParaAviso(data: unknown): DestinoAviso | null {
     // Horas extra (y lo demás): Inicio.
     return { tab: 'Home' };
   }
+  // Descuento disciplinario por aceptar (o su resultado): Mi disciplina.
+  if (d?.category === 'disciplina') return { stack: 'MiDisciplina' };
   // Préstamo aprobado (firmar), desembolsado o pagado.
   if (typeof d?.category === 'string' && d.category.startsWith('prestamo_')) return { stack: 'Prestamos' };
   // Mantenimiento: solicitud nueva, asignación, resuelta (¿quedó bien?) o reabierta.
