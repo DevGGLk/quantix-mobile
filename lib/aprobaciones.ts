@@ -39,7 +39,8 @@ export type Adelanto = {
 
 export type FilaSolicitud = {
   id: string;
-  tipo: 'adelanto' | 'prestamo' | 'vacaciones' | 'permiso' | 'horas_extra';
+  tipo: 'adelanto' | 'prestamo' | 'vacaciones' | 'permiso' | 'horas_extra' | 'finiquito';
+  escalada?: boolean;
   ref_tabla: string;
   ref_id: string;
   resumen: string;
