@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../lib/theme';
-import { contarChecklistsPorRevisar, decidir, fmtC, misPorAprobar, type FilaSolicitud } from '../lib/aprobaciones';
+import { contarChecklistsPorRevisar, decidir, fmtC, misPorAprobar, registrarAcuerdo, saldoQuedaNegativo, type FilaSolicitud } from '../lib/aprobaciones';
 import { useNavigation } from '@react-navigation/native';
 import type { RootStackNavigation } from '../types/navigation';
 import RecorridoSolicitud from '../components/RecorridoSolicitud';
@@ -57,6 +57,10 @@ function Datos({ f }: { f: FilaSolicitud }) {
     if (d.es_vacaciones && d.saldo_vacaciones != null) {
       const saldo = Number(d.saldo_vacaciones);
       lineas.push({ k: 'Saldo de vacaciones hoy', v: `${saldo.toLocaleString('es-NI', { maximumFractionDigits: 2 })} días`, alerta: d.dias != null && saldo < Number(d.dias) });
+      const queda = saldoQuedaNegativo(f);
+      if (queda != null) {
+        lineas.push({ k: 'Quedaría en', v: `${queda.toLocaleString('es-NI', { maximumFractionDigits: 2 })} días (adelantadas: requiere acuerdo)`, alerta: true });
+      }
     }
   } else if (f.tipo === 'horas_extra') {
     lineas.push({ k: 'Día', v: dia(d.fecha) });
@@ -162,6 +166,7 @@ export default function PorAprobarScreen() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [hoja, setHoja] = useState<{ f: FilaSolicitud; d: 'aprobado' | 'rechazado' } | null>(null);
   const [comentario, setComentario] = useState('');
+  const [acuerdo, setAcuerdo] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [errorHoja, setErrorHoja] = useState<string | null>(null);
   const [checklists, setChecklists] = useState(0);
@@ -190,8 +195,21 @@ export default function PorAprobarScreen() {
       setErrorHoja('Escribe el motivo (al menos 8 letras): el colaborador lo verá.');
       return;
     }
+    const quedaNeg = hoja.d === 'aprobado' ? saldoQuedaNegativo(hoja.f) : null;
+    if (quedaNeg != null && acuerdo.trim().length < 3) {
+      setErrorHoja('Escribe la referencia del acuerdo firmado con el colaborador: sin acuerdo no se aprueban vacaciones adelantadas.');
+      return;
+    }
     setEnviando(true);
     setErrorHoja(null);
+    if (quedaNeg != null) {
+      const ra = await registrarAcuerdo(hoja.f.ref_id, acuerdo);
+      if (!ra.ok) {
+        setEnviando(false);
+        setErrorHoja(ra.error);
+        return;
+      }
+    }
     const r = await decidir(hoja.f, hoja.d, comentario);
     setEnviando(false);
     if (!r.ok) {
@@ -258,6 +276,7 @@ export default function PorAprobarScreen() {
               onDecidir={(d) => {
                 setHoja({ f, d });
                 setComentario('');
+                setAcuerdo('');
                 setErrorHoja(null);
               }}
             />
@@ -276,6 +295,23 @@ export default function PorAprobarScreen() {
               <Text style={s.texto}>
                 Después de ti la revisa el paso {hoja.f.paso_actual + 1} de {hoja.f.total_pasos}.
               </Text>
+            ) : null}
+            {hoja && hoja.d === 'aprobado' && saldoQuedaNegativo(hoja.f) != null ? (
+              <View style={s.adelantadas}>
+                <Text style={s.adelantadasText}>
+                  Vacaciones adelantadas: el saldo quedaría en{' '}
+                  {saldoQuedaNegativo(hoja.f)!.toLocaleString('es-NI', { maximumFractionDigits: 2 })} días. Solo se aprueba con un
+                  acuerdo firmado con el colaborador y dentro del máximo de la empresa; se recupera solo cada mes.
+                </Text>
+                <Text style={s.label}>Acuerdo firmado (referencia)</Text>
+                <TextInput
+                  style={[s.input, { minHeight: 44 }]}
+                  value={acuerdo}
+                  onChangeText={setAcuerdo}
+                  placeholder="Ej.: acuerdo firmado el 19/11, en el expediente"
+                  placeholderTextColor={theme.textMuted}
+                />
+              </View>
             ) : null}
             <Text style={s.label}>{hoja?.d === 'aprobado' ? 'Comentario (opcional)' : 'Motivo del rechazo'}</Text>
             <TextInput
@@ -336,6 +372,8 @@ const s = StyleSheet.create({
   error: { fontSize: 13, color: theme.danger },
   modalFondo: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15,23,42,0.5)' },
   hoja: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 10, paddingBottom: 32 },
+  adelantadas: { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FCD34D', borderRadius: 12, padding: 12, gap: 8 },
+  adelantadasText: { fontSize: 13, color: '#78350F', lineHeight: 18 },
   h2: { fontSize: 17, fontWeight: '800', color: theme.textPrimary },
   label: { fontSize: 12, fontWeight: '600', color: theme.textSecondary },
   input: {

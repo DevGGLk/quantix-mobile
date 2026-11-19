@@ -313,7 +313,14 @@ export default function VacacionesScreen() {
           <View style={styles.saldoCard}>
             <Ionicons name="airplane-outline" size={28} color="#ffffff" />
             <Text style={styles.saldoNumber}>{fmtDias(saldoMostrado)}</Text>
-            <Text style={styles.saldoLabel}>días disponibles</Text>
+            <Text style={styles.saldoLabel}>
+              {saldoMostrado < 0 ? 'días de vacaciones adelantadas' : 'días disponibles'}
+            </Text>
+            {saldoMostrado < 0 ? (
+              <Text style={[styles.saldoLabel, { textAlign: 'center', marginTop: 4 }]}>
+                Gozaste vacaciones por adelantado según el acuerdo firmado. Se recuperan solas con lo que ganas cada mes.
+              </Text>
+            ) : null}
             {fechaCorte ? (
               <Text style={styles.saldoLabel}>
                 Al {fmtFecha(fechaCorte)} · suma ≈{fmtDias(DEVENGO_DIARIO)} días por día
