@@ -45,7 +45,8 @@ export function destinoParaAviso(data: unknown): DestinoAviso | null {
     const url = typeof d.url === 'string' ? d.url : '';
     if (tipo === 'adelanto' || url.includes('/mi-portal/adelantos')) return { stack: 'Adelantos' };
     if (tipo === 'prestamo' || url.includes('/mi-portal/prestamos')) return { stack: 'Prestamos' };
-    return { stack: 'PorAprobar' };
+    // Horas extra (y lo demás): Inicio.
+    return { tab: 'Home' };
   }
   // Préstamo aprobado (firmar), desembolsado o pagado.
   if (typeof d?.category === 'string' && d.category.startsWith('prestamo_')) return { stack: 'Prestamos' };

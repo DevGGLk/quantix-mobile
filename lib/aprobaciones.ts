@@ -39,7 +39,7 @@ export type Adelanto = {
 
 export type FilaSolicitud = {
   id: string;
-  tipo: 'adelanto' | 'prestamo';
+  tipo: 'adelanto' | 'prestamo' | 'vacaciones' | 'permiso' | 'horas_extra';
   ref_tabla: string;
   ref_id: string;
   resumen: string;
@@ -128,12 +128,45 @@ export async function recorrido(tabla: string, refId: string): Promise<PasoRecor
   return ((data as { pasos?: PasoRecorrido[] }).pasos ?? []) as PasoRecorrido[];
 }
 
-/** Aprobar o rechazar. Adelantos: directo en la base; préstamos: API web. */
+async function postWeb(path: string, body: unknown): Promise<Resultado> {
+  if (!API_BASE) return { ok: false, error: 'La URL del servidor no está configurada.' };
+  const { data: ses } = await supabase.auth.getSession();
+  const token = ses?.session?.access_token;
+  if (!token) return { ok: false, error: 'Sesión expirada. Inicia sesión de nuevo.' };
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json().catch(() => ({}))) as Resultado;
+    if (!res.ok && !('error' in json)) return { ok: false, error: 'No se pudo guardar.' };
+    return json;
+  } catch {
+    return { ok: false, error: 'Sin conexión. Inténtalo otra vez.' };
+  }
+}
+
+/**
+ * Aprobar o rechazar. Adelantos y horas extra: directo en la base. Vacaciones y permisos: la
+ * misma puerta de la web (libro de días, saldo, aviso al colaborador). Préstamos: API web.
+ */
 export async function decidir(
   s: FilaSolicitud,
   decision: 'aprobado' | 'rechazado',
   comentario: string,
 ): Promise<Resultado> {
+  if (s.tipo === 'vacaciones' || s.tipo === 'permiso') {
+    const r = await postWeb('/api/time-off/decide', {
+      requestId: s.ref_id,
+      decision: decision === 'aprobado' ? 'aprobada' : 'rechazada',
+      reason: comentario.trim() || null,
+    });
+    if (r.ok && decision === 'aprobado' && s.total_pasos > s.paso_actual) {
+      return { ok: true, mensaje: 'Tu aprobación quedó registrada; pasa al siguiente paso.' };
+    }
+    return r;
+  }
   if (s.tipo !== 'prestamo') {
     const { data, error } = await supabase.rpc('decidir_solicitud', {
       p_id: s.id,
@@ -143,20 +176,5 @@ export async function decidir(
     if (error) return { ok: false, error: errorDe(error, 'No se pudo guardar.') };
     return data as Resultado;
   }
-  if (!API_BASE) return { ok: false, error: 'La URL del servidor no está configurada.' };
-  const { data: ses } = await supabase.auth.getSession();
-  const token = ses?.session?.access_token;
-  if (!token) return { ok: false, error: 'Sesión expirada. Inicia sesión de nuevo.' };
-  try {
-    const res = await fetch(`${API_BASE}/api/aprobaciones/decidir-prestamo`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ solicitudId: s.id, decision, comentario }),
-    });
-    const json = (await res.json().catch(() => ({}))) as Resultado;
-    if (!res.ok && !('error' in json)) return { ok: false, error: 'No se pudo guardar.' };
-    return json;
-  } catch {
-    return { ok: false, error: 'Sin conexión. Inténtalo otra vez.' };
-  }
+  return postWeb('/api/aprobaciones/decidir-prestamo', { solicitudId: s.id, decision, comentario });
 }

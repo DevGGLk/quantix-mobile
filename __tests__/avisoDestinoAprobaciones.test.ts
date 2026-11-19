@@ -10,6 +10,9 @@ describe('avisos de «Quién aprueba qué»', () => {
   it('resultado de un préstamo abre Mis préstamos', () => {
     expect(destinoParaAviso({ category: 'aprobacion_resultado', url: '/mi-portal/prestamos' })).toEqual({ stack: 'Prestamos' });
   });
+  it('resultado de horas extra abre Inicio', () => {
+    expect(destinoParaAviso({ category: 'aprobacion_resultado', url: '/mi-portal' })).toEqual({ tab: 'Home' });
+  });
   it('avisos del préstamo (firmar, desembolso) abren Mis préstamos', () => {
     expect(destinoParaAviso({ category: 'prestamo_firmar' })).toEqual({ stack: 'Prestamos' });
   });
