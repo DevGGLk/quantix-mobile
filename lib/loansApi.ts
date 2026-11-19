@@ -49,6 +49,8 @@ export type LoanRequestRow = {
   resulting_loan_id: string | null;
   created_at: string;
   updated_at: string;
+  /** Ruta de aprobación: en qué paso va y quién la tiene (si la empresa usa «Quién aprueba qué»). */
+  ruta?: { estado: string; paso: number; total: number; etiqueta: string | null; en_manos_de: string[] } | null;
 };
 
 type Ok<T> = { ok: true } & T;

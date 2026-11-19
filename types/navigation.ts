@@ -90,6 +90,10 @@ export type RootStackParamList = {
   CrearAnuncio: undefined;
   MiEmpresa: undefined;
   Prestamos: undefined;
+  /** Pedir adelanto de salario y ver los míos (motor «Quién aprueba qué»). */
+  Adelantos: undefined;
+  /** Bandeja personal: solicitudes que me toca aprobar (adelantos y préstamos). */
+  PorAprobar: undefined;
   SolicitarPrestamo: undefined;
   PrestamoDetalle: { request: LoanRequestRouteParam };
   RegistrarPago: { loan: ActiveLoanRouteParam };

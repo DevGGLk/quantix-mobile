@@ -47,6 +47,8 @@ import ReportarIncidenciaScreen from './screens/ReportarIncidenciaScreen';
 import CrearAnuncioScreen from './screens/CrearAnuncioScreen';
 import MiEmpresaScreen from './screens/MiEmpresaScreen';
 import PrestamosScreen from './screens/PrestamosScreen';
+import AdelantosScreen from './screens/AdelantosScreen';
+import PorAprobarScreen from './screens/PorAprobarScreen';
 import SolicitarPrestamoScreen from './screens/SolicitarPrestamoScreen';
 import PrestamoDetalleScreen from './screens/PrestamoDetalleScreen';
 import RegistrarPagoScreen from './screens/RegistrarPagoScreen';
@@ -498,7 +500,17 @@ function AppInner() {
             <Stack.Screen
               name="Prestamos"
               component={PrestamosScreen}
-              options={{ title: 'Préstamos y adelantos' }}
+              options={{ title: 'Mis préstamos' }}
+            />
+            <Stack.Screen
+              name="Adelantos"
+              component={AdelantosScreen}
+              options={{ title: 'Mis adelantos' }}
+            />
+            <Stack.Screen
+              name="PorAprobar"
+              component={PorAprobarScreen}
+              options={{ title: 'Por aprobar' }}
             />
             <Stack.Screen
               name="SolicitarPrestamo"
