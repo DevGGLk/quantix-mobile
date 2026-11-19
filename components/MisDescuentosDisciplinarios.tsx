@@ -57,7 +57,7 @@ export function MisDescuentosDisciplinarios() {
     setError(null);
     const { data, error: e } =
       hoja.tipo === 'aceptar'
-        ? await supabase.rpc('aceptar_descuento_disciplinario', { p_id: hoja.d.id })
+        ? await supabase.rpc('aceptar_descuento_disciplinario', { p_id: hoja.d.id, p_texto: hoja.d.texto ?? '' })
         : await supabase.rpc('disputar_descuento_disciplinario', { p_id: hoja.d.id, p_motivo: motivo.trim() });
     setEnviando(false);
     const r = data as { ok: boolean; error?: string } | null;
