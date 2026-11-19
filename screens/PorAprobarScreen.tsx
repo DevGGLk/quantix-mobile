@@ -27,7 +27,14 @@ function Datos({ f }: { f: FilaSolicitud }) {
   const lineas: { k: string; v: string; alerta?: boolean }[] = [];
   const dia = (x: unknown) =>
     x ? new Date(`${String(x)}T12:00:00`).toLocaleDateString('es-NI', { weekday: 'short', day: 'numeric', month: 'short' }) : '—';
-  if (f.tipo === 'finiquito') {
+  if (f.tipo === 'cambio_laboral') {
+    const antes = Number(d.salario_antes ?? 0);
+    const nuevo = Number(d.salario_nuevo ?? 0);
+    const pct = antes > 0 ? ((nuevo - antes) / antes) * 100 : null;
+    if (d.cargo_antes !== d.cargo_nuevo) lineas.push({ k: 'Cargo', v: `${d.cargo_antes ?? '—'} → ${d.cargo_nuevo ?? '—'}` });
+    lineas.push({ k: 'Salario mensual', v: `${fmtC(antes)} → ${fmtC(nuevo)}${pct != null ? ` (${pct >= 0 ? '+' : ''}${pct.toFixed(1)} %)` : ''}` });
+    lineas.push({ k: 'Costo anual extra', v: fmtC((nuevo - antes) * 12) });
+  } else if (f.tipo === 'finiquito') {
     lineas.push({ k: 'Salió', v: `${dia(d.fecha_salida)}${d.dias_desde_salida != null ? ` (hace ${d.dias_desde_salida} días)` : ''}`, alerta: Number(d.dias_desde_salida ?? 0) > 15 });
     if (d.motivo_baja) lineas.push({ k: 'Motivo', v: String(d.motivo_baja) });
     if (d.total != null) lineas.push({ k: 'A pagar', v: fmtC(Number(d.total)) });
@@ -89,6 +96,7 @@ function Tarjeta({ f, onDecidir }: { f: FilaSolicitud; onDecidir: (d: 'aprobado'
               : f.tipo === 'vacaciones' ? 'sunny-outline'
               : f.tipo === 'permiso' ? 'calendar-outline'
               : f.tipo === 'finiquito' ? 'document-text-outline'
+              : f.tipo === 'cambio_laboral' ? 'trending-up-outline'
               : 'time-outline'
             }
             size={20}
