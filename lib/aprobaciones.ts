@@ -35,6 +35,7 @@ export type Adelanto = {
   en_manos_de: string[] | null;
   etiqueta_paso: string | null;
   tiene_recorrido: boolean;
+  pagos?: { monto: number; origen: string; metodo: string | null; referencia: string | null; fecha: string }[];
 };
 
 export type FilaSolicitud = {

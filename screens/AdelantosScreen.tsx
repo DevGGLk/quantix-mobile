@@ -36,10 +36,16 @@ const ESTADO: Record<Adelanto['estado'], { t: string; bg: string; fg: string }> 
   withdrawn: { t: 'Retirado', bg: '#F1F5F9', fg: '#475569' },
 };
 
-const fecha = (s: string) => new Date(s).toLocaleDateString('es-NI', { day: 'numeric', month: 'short', year: 'numeric' });
+const ORIGEN: Record<string, string> = { payroll: 'Planilla', finiquito: 'Finiquito', manual: 'Pago en efectivo o transferencia' };
+
+// Fecha sola (AAAA-MM-DD) a mediodía: si no, en Managua (UTC−6) sale el día anterior.
+const fecha = (s: string) =>
+  new Date(s.length <= 10 ? `${s}T12:00:00` : s).toLocaleDateString('es-NI', { day: 'numeric', month: 'short', year: 'numeric' });
 
 function Tarjeta({ a, onRetirar, ocupado }: { a: Adelanto; onRetirar: () => void; ocupado: boolean }) {
   const [abierto, setAbierto] = useState(a.estado === 'pending');
+  const [verPagos, setVerPagos] = useState(false);
+  const pagos = a.pagos ?? [];
   const e = ESTADO[a.estado] ?? ESTADO.cancelled;
   const pct = a.total > 0 ? Math.min(100, Math.round((a.recuperado / a.total) * 100)) : 0;
   return (
@@ -75,6 +81,26 @@ function Tarjeta({ a, onRetirar, ocupado }: { a: Adelanto; onRetirar: () => void
         <Text style={s.texto}>Motivo: {a.motivo_cierre}</Text>
       ) : null}
       {a.motivo ? <Text style={s.meta}>Para: «{a.motivo}»</Text> : null}
+      {pagos.length > 0 ? (
+        <View>
+          <TouchableOpacity onPress={() => setVerPagos((v) => !v)} style={s.toggle}>
+            <Ionicons name={verPagos ? 'chevron-up' : 'chevron-down'} size={14} color={theme.textSecondary} />
+            <Text style={s.toggleText}>Mis descuentos ({pagos.length})</Text>
+          </TouchableOpacity>
+          {verPagos ? (
+            <View style={[s.recorrido, { marginTop: 6, gap: 4 }]}>
+              {pagos.map((p, i) => (
+                <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                  <Text style={s.meta}>
+                    {fecha(p.fecha)} · {ORIGEN[p.origen] ?? p.origen}
+                  </Text>
+                  <Text style={[s.meta, { fontWeight: '700', color: theme.textPrimary }]}>{fmtC(p.monto)}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
       <View style={s.filaAcciones}>
         {a.estado === 'pending' ? (
           <TouchableOpacity onPress={onRetirar} disabled={ocupado}>
