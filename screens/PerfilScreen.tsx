@@ -404,7 +404,7 @@ export default function PerfilScreen() {
           </Text>
           <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('Vacaciones')}>
             <Text style={styles.laborLabel}>
-              Días de vacaciones disponibles:{' '}
+              {typeof vacationDays === 'number' && vacationDays < 0 ? 'Vacaciones adelantadas (días):' : 'Días de vacaciones disponibles:'}{' '}
               <Text style={styles.laborValue}>
                 {typeof vacationDays === 'number' ? vacationDays : '—'}
               </Text>

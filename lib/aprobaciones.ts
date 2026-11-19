@@ -159,6 +159,23 @@ async function postWeb(path: string, body: unknown): Promise<Resultado> {
  * Aprobar o rechazar. Adelantos y horas extra: directo en la base. Vacaciones y permisos: la
  * misma puerta de la web (libro de días, saldo, aviso al colaborador). Préstamos: API web.
  */
+/** Vacaciones que dejan el saldo negativo (adelantadas): cuánto quedaría, o null si no aplica. */
+export function saldoQuedaNegativo(s: FilaSolicitud): number | null {
+  const d = (s.detalle ?? {}) as Record<string, unknown>;
+  if (s.tipo !== 'vacaciones' || !d.es_vacaciones || d.saldo_vacaciones == null || d.dias == null) return null;
+  const queda = Math.round((Number(d.saldo_vacaciones) - Number(d.dias)) * 100) / 100;
+  return queda < 0 ? queda : null;
+}
+
+/** Registra el acuerdo firmado de vacaciones adelantadas (lo exige la base para aprobar con saldo negativo). */
+export async function registrarAcuerdo(requestId: string, referencia: string): Promise<Resultado> {
+  const { error } = await supabase.rpc('time_off_registrar_acuerdo', {
+    p_request_id: requestId,
+    p_agreement_doc_ref: referencia.trim(),
+  });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
 export async function decidir(
   s: FilaSolicitud,
   decision: 'aprobado' | 'rechazado',
