@@ -100,12 +100,11 @@ export default function AdminDashboardScreen() {
       setUpdatingRequestId(id);
 
       if (source === 'time_off_requests') {
-        const statusWeb = nuevoEstado === 'aprobado' ? 'aprobada' : 'rechazada';
-        const { error } = await supabase
-          .from('time_off_requests')
-          .update({ status: statusWeb })
-          .eq('id', id);
-        if (error) throw error;
+        // «Quién aprueba qué»: vacaciones y permisos se deciden en la bandeja (ruta, saldo, motivo
+        // al rechazar). Escribir el estado directo ya no se permite.
+        setUpdatingRequestId(null);
+        navigation.navigate('PorAprobar');
+        return;
       } else {
         const { error } = await supabase
           .from('employee_requests')

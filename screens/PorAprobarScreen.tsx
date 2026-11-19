@@ -25,7 +25,21 @@ function Datos({ f }: { f: FilaSolicitud }) {
   const d = f.detalle ?? {};
   const salario = Number(d.salario_mensual ?? 0);
   const lineas: { k: string; v: string; alerta?: boolean }[] = [];
-  if (f.tipo === 'adelanto') {
+  const dia = (x: unknown) =>
+    x ? new Date(`${String(x)}T12:00:00`).toLocaleDateString('es-NI', { weekday: 'short', day: 'numeric', month: 'short' }) : '—';
+  if (f.tipo === 'vacaciones' || f.tipo === 'permiso') {
+    lineas.push({ k: 'Tipo', v: String(d.tipo_ausencia ?? 'Ausencia') });
+    lineas.push({ k: 'Fechas', v: d.desde === d.hasta ? dia(d.desde) : `${dia(d.desde)} → ${dia(d.hasta)}` });
+    if (d.hora_inicio && d.hora_fin) lineas.push({ k: 'Horario', v: `${String(d.hora_inicio).slice(0, 5)} – ${String(d.hora_fin).slice(0, 5)}` });
+    else if (d.dias != null) lineas.push({ k: 'Días', v: Number(d.dias).toLocaleString('es-NI', { maximumFractionDigits: 2 }) });
+    if (d.es_vacaciones && d.saldo_vacaciones != null) {
+      const saldo = Number(d.saldo_vacaciones);
+      lineas.push({ k: 'Saldo de vacaciones hoy', v: `${saldo.toLocaleString('es-NI', { maximumFractionDigits: 2 })} días`, alerta: d.dias != null && saldo < Number(d.dias) });
+    }
+  } else if (f.tipo === 'horas_extra') {
+    lineas.push({ k: 'Día', v: dia(d.fecha) });
+    lineas.push({ k: 'Horas', v: `${Number(d.horas ?? 0).toLocaleString('es-NI', { maximumFractionDigits: 2 })} h` });
+  } else if (f.tipo === 'adelanto') {
     const cuota = Number(d.cuota ?? 0);
     const porPeriodo = salario > 0 ? salario / (POR_PERIODO[String(d.periodo ?? 'biweekly')] ?? 2) : 0;
     const pct = porPeriodo > 0 ? Math.round((cuota / porPeriodo) * 100) : null;
@@ -43,7 +57,7 @@ function Datos({ f }: { f: FilaSolicitud }) {
     }
     if (d.cuota != null) lineas.push({ k: 'Cuota', v: fmtC(Number(d.cuota)) });
   }
-  if (salario > 0) lineas.push({ k: 'Salario mensual', v: fmtC(salario) });
+  if (salario > 0 && (f.tipo === 'adelanto' || f.tipo === 'prestamo')) lineas.push({ k: 'Salario mensual', v: fmtC(salario) });
   if (Number(d.prestamos_saldo ?? 0) > 0) lineas.push({ k: 'Préstamos por pagar', v: fmtC(Number(d.prestamos_saldo)) });
   return (
     <View style={s.datos}>
@@ -64,7 +78,17 @@ function Tarjeta({ f, onDecidir }: { f: FilaSolicitud; onDecidir: (d: 'aprobado'
     <View style={s.card}>
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={s.icono}>
-          <Ionicons name={f.tipo === 'adelanto' ? 'cash-outline' : 'wallet-outline'} size={20} color={theme.primary} />
+          <Ionicons
+            name={
+              f.tipo === 'adelanto' ? 'cash-outline'
+              : f.tipo === 'prestamo' ? 'wallet-outline'
+              : f.tipo === 'vacaciones' ? 'sunny-outline'
+              : f.tipo === 'permiso' ? 'calendar-outline'
+              : 'time-outline'
+            }
+            size={20}
+            color={theme.primary}
+          />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={s.nombre}>{f.colaborador ?? 'Colaborador'}</Text>

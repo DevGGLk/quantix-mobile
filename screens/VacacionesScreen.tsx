@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackScreenNavigation } from '../types/navigation';
+import { PorAprobarCard } from '../components/PorAprobarCard';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
@@ -247,32 +248,8 @@ export default function VacacionesScreen() {
     }
   };
 
-  const solicitudesEquipo =
-    equipo.length > 0 ? (
-      <View style={styles.infoCard}>
-        <Text style={styles.solTitle}>Solicitudes de mi equipo</Text>
-        {equipo.map((p, i) => (
-          <View key={p.id}>
-            {i > 0 ? <View style={styles.infoDivider} /> : null}
-            <View style={{ paddingVertical: 6 }}>
-              <Text style={styles.infoValue}>{nombreEquipo(p)}</Text>
-              <Text style={styles.infoLabel}>
-                {p.request_type ?? 'Ausencia'} · {rangoSolicitud(p)}
-              </Text>
-              {p.notes ? <Text style={styles.infoLabel} numberOfLines={2}>{p.notes}</Text> : null}
-              <View style={styles.solRow}>
-                <TouchableOpacity onPress={() => void decidir(p, 'aprobada', null)} disabled={decidiendo === p.id}>
-                  <Text style={styles.solApprove}>{decidiendo === p.id ? 'Guardando…' : 'Aprobar'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => pedirRechazo(p)} disabled={decidiendo === p.id}>
-                  <Text style={styles.solCancel}>Rechazar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        ))}
-      </View>
-    ) : null;
+  // «Quién aprueba qué»: lo que te toca aprobar (de tu equipo o de quien sea) está en «Por aprobar».
+  const solicitudesEquipo = <PorAprobarCard />;
 
   const misSolicitudes =
     solicitudes.length > 0 ? (

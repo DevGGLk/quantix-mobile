@@ -30,7 +30,7 @@ export function PorAprobarCard() {
       </View>
       <View style={{ flex: 1 }}>
         <Text style={s.titulo}>{n === 1 ? 'Tienes 1 solicitud por aprobar' : `Tienes ${n} solicitudes por aprobar`}</Text>
-        <Text style={s.sub}>Adelantos y préstamos esperan tu decisión.</Text>
+        <Text style={s.sub}>Vacaciones, permisos, horas extra, adelantos o préstamos.</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color="#B45309" />
     </TouchableOpacity>
