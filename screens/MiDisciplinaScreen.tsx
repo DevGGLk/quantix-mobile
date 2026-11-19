@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { MisDescuentosDisciplinarios } from '../components/MisDescuentosDisciplinarios';
 import {
   View,
   Text,
@@ -161,6 +162,8 @@ export default function MiDisciplinaScreen() {
           keyExtractor={(it) => it.id}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
+          // Descuentos en dinero: se aceptan o se disputan aquí (sin aceptación no se descuentan).
+          ListHeaderComponent={<MisDescuentosDisciplinarios />}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
           }
