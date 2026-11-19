@@ -18,7 +18,7 @@ import {
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
-  const d = new Date(s);
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00` : s);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('es-NI', { day: '2-digit', month: 'short', year: 'numeric' });
 }

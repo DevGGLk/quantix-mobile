@@ -342,7 +342,7 @@ export default function PerfilScreen() {
 
   const formattedHireDate =
     hireDate && !Number.isNaN(Date.parse(hireDate))
-      ? new Date(hireDate).toLocaleDateString('es-ES', {
+      ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(hireDate) ? `${hireDate}T12:00:00` : hireDate).toLocaleDateString('es-ES', {
           day: '2-digit',
           month: 'short',
           year: 'numeric',
