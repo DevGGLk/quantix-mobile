@@ -39,7 +39,7 @@ export type Adelanto = {
 
 export type FilaSolicitud = {
   id: string;
-  tipo: 'adelanto' | 'prestamo' | 'vacaciones' | 'permiso' | 'horas_extra' | 'finiquito';
+  tipo: 'adelanto' | 'prestamo' | 'vacaciones' | 'permiso' | 'horas_extra' | 'finiquito' | 'cambio_laboral';
   escalada?: boolean;
   ref_tabla: string;
   ref_id: string;
@@ -157,6 +157,23 @@ export async function decidir(
   decision: 'aprobado' | 'rechazado',
   comentario: string,
 ): Promise<Resultado> {
+  if (s.tipo === 'cambio_laboral') {
+    // Valida que el cargo/salario no cambió y mantiene al día los pasos del módulo.
+    const { data, error } = await supabase.rpc('decidir_cambio_laboral', {
+      p_request_id: s.ref_id,
+      p_aprobar: decision === 'aprobado',
+      p_nota: comentario.trim() || null,
+    });
+    if (error) return { ok: false, error: error.message };
+    const r = data as { status?: string; rige_desde?: string | null; mensaje?: string | null } | null;
+    return {
+      ok: true,
+      mensaje:
+        r?.status === 'aprobada' ? `Aprobado. Rige desde el ${r.rige_desde ?? '—'}.`
+        : r?.status === 'rechazada' ? 'Rechazado. Se le avisó a RRHH.'
+        : r?.mensaje ?? 'Tu aprobación quedó registrada; pasa al siguiente paso.',
+    };
+  }
   if (s.tipo === 'vacaciones' || s.tipo === 'permiso') {
     const r = await postWeb('/api/time-off/decide', {
       requestId: s.ref_id,
