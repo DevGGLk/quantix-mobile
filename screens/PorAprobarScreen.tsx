@@ -27,7 +27,11 @@ function Datos({ f }: { f: FilaSolicitud }) {
   const lineas: { k: string; v: string; alerta?: boolean }[] = [];
   const dia = (x: unknown) =>
     x ? new Date(`${String(x)}T12:00:00`).toLocaleDateString('es-NI', { weekday: 'short', day: 'numeric', month: 'short' }) : '—';
-  if (f.tipo === 'vacaciones' || f.tipo === 'permiso') {
+  if (f.tipo === 'finiquito') {
+    lineas.push({ k: 'Salió', v: `${dia(d.fecha_salida)}${d.dias_desde_salida != null ? ` (hace ${d.dias_desde_salida} días)` : ''}`, alerta: Number(d.dias_desde_salida ?? 0) > 15 });
+    if (d.motivo_baja) lineas.push({ k: 'Motivo', v: String(d.motivo_baja) });
+    if (d.total != null) lineas.push({ k: 'A pagar', v: fmtC(Number(d.total)) });
+  } else if (f.tipo === 'vacaciones' || f.tipo === 'permiso') {
     lineas.push({ k: 'Tipo', v: String(d.tipo_ausencia ?? 'Ausencia') });
     lineas.push({ k: 'Fechas', v: d.desde === d.hasta ? dia(d.desde) : `${dia(d.desde)} → ${dia(d.hasta)}` });
     if (d.hora_inicio && d.hora_fin) lineas.push({ k: 'Horario', v: `${String(d.hora_inicio).slice(0, 5)} – ${String(d.hora_fin).slice(0, 5)}` });
@@ -84,6 +88,7 @@ function Tarjeta({ f, onDecidir }: { f: FilaSolicitud; onDecidir: (d: 'aprobado'
               : f.tipo === 'prestamo' ? 'wallet-outline'
               : f.tipo === 'vacaciones' ? 'sunny-outline'
               : f.tipo === 'permiso' ? 'calendar-outline'
+              : f.tipo === 'finiquito' ? 'document-text-outline'
               : 'time-outline'
             }
             size={20}
@@ -98,6 +103,7 @@ function Tarjeta({ f, onDecidir }: { f: FilaSolicitud; onDecidir: (d: 'aprobado'
             {f.total_pasos > 1 ? ` · paso ${f.paso_actual} de ${f.total_pasos}` : ''}
           </Text>
           {f.por_suplencia_de ? <Text style={s.suplente}>Decides como suplente de {f.por_suplencia_de}.</Text> : null}
+          {f.escalada ? <Text style={s.suplente}>Escalada al dueño</Text> : null}
           {f.vencida ? <Text style={s.vencida}>Lleva más del plazo</Text> : null}
         </View>
       </View>
@@ -106,10 +112,15 @@ function Tarjeta({ f, onDecidir }: { f: FilaSolicitud; onDecidir: (d: 'aprobado'
         <TouchableOpacity style={s.btnAprobar} onPress={() => onDecidir('aprobado')}>
           <Text style={s.btnAprobarText}>Aprobar</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.btnRechazar} onPress={() => onDecidir('rechazado')}>
-          <Text style={s.btnRechazarText}>Rechazar</Text>
-        </TouchableOpacity>
+        {f.tipo !== 'finiquito' ? (
+          <TouchableOpacity style={s.btnRechazar} onPress={() => onDecidir('rechazado')}>
+            <Text style={s.btnRechazarText}>Rechazar</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
+      {f.tipo === 'finiquito' ? (
+        <Text style={s.meta}>¿Error en el cálculo? Pide a RRHH corregirlo o anular la baja. El detalle completo está en la web.</Text>
+      ) : null}
       <TouchableOpacity onPress={() => setAbierto((v) => !v)} style={s.toggle}>
         <Ionicons name={abierto ? 'chevron-up' : 'chevron-down'} size={14} color={theme.textSecondary} />
         <Text style={s.toggleText}>Recorrido</Text>
