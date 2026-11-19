@@ -25,6 +25,7 @@ import { HelpModal } from '../components/HelpModal';
 import { CongratsBanner } from '../components/CongratsBanner';
 import { WorkedTimeChronometer } from '../components/WorkedTimeChronometer';
 import { EncuestasPendientesCard } from '../components/EncuestasPendientesCard';
+import { PorAprobarCard } from '../components/PorAprobarCard';
 import { DesempenoPendienteCard } from '../components/DesempenoPendienteCard';
 import { captureException } from '../lib/sentry';
 import { supabase } from '../lib/supabase';
@@ -1514,6 +1515,7 @@ export default function HomeScreen() {
       >
         <View style={styles.content}>
           <CongratsBanner companyId={companyId} />
+          <PorAprobarCard />
           <EncuestasPendientesCard companyId={companyId} />
           <DesempenoPendienteCard />
           {/* Tarjeta «Cronómetro» con el mismo diseño que Mi Portal en la web. */}

@@ -6,6 +6,8 @@ import type { TabCompositeNavigation } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import { useAuth } from '../lib/AuthContext';
+import { contarPorAprobar } from '../lib/aprobaciones';
+import { useFocusEffect } from '@react-navigation/native';
 
 type CompanySettings = {
   company_id: string;
@@ -21,6 +23,19 @@ type CompanySettings = {
 export default function ServiciosScreen() {
   const navigation = useNavigation<TabCompositeNavigation<'Servicios'>>();
   const [companySettings, setCompanySettings] = useState<CompanySettings>(null);
+  // Solicitudes que le toca decidir a esta persona (jefe, RRHH o dueño).
+  const [porAprobar, setPorAprobar] = useState(0);
+  useFocusEffect(
+    React.useCallback(() => {
+      let vivo = true;
+      void contarPorAprobar().then((n) => {
+        if (vivo) setPorAprobar(n);
+      });
+      return () => {
+        vivo = false;
+      };
+    }, []),
+  );
   const { employee } = useAuth();
 
   useEffect(() => {
@@ -177,6 +192,33 @@ export default function ServiciosScreen() {
           </TouchableOpacity>
         )}
 
+        {porAprobar > 0 && (
+          <TouchableOpacity
+            style={styles.card}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('PorAprobar')}
+          >
+            <View>
+              <Ionicons name="file-tray-full-outline" size={32} color="#F59E0B" />
+              <View style={styles.globo}>
+                <Text style={styles.globoText}>{porAprobar > 99 ? '99+' : porAprobar}</Text>
+              </View>
+            </View>
+            <Text style={styles.cardLabel}>Por aprobar</Text>
+          </TouchableOpacity>
+        )}
+
+        {companySettings?.enable_loans !== false && (
+          <TouchableOpacity
+            style={styles.card}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Adelantos')}
+          >
+            <Ionicons name="cash-outline" size={32} color="#5B4DD4" />
+            <Text style={styles.cardLabel}>Pedir adelanto</Text>
+          </TouchableOpacity>
+        )}
+
         {companySettings?.enable_loans !== false && (
           <TouchableOpacity
             style={styles.card}
@@ -184,7 +226,7 @@ export default function ServiciosScreen() {
             onPress={() => navigation.navigate('Prestamos')}
           >
             <Ionicons name="wallet-outline" size={32} color="#0ea5e9" />
-            <Text style={styles.cardLabel}>Préstamos y adelantos</Text>
+            <Text style={styles.cardLabel}>Mis préstamos</Text>
           </TouchableOpacity>
         )}
 
@@ -294,6 +336,19 @@ const styles = StyleSheet.create({
     gap: 12,
     justifyContent: 'flex-start',
   },
+  globo: {
+    position: 'absolute',
+    top: -6,
+    right: -12,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: '#FF3F48',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  globoText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   cardLabel: {
     marginTop: 8,
     fontSize: 14,

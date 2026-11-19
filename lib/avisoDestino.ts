@@ -9,7 +9,10 @@ export type DestinoAviso =
   | { stack: 'Checklists'; params?: undefined }
   | { stack: 'ChecklistsEquipo'; params?: undefined }
   | { stack: 'Vacaciones'; params?: undefined }
-  | { stack: 'Mantenimiento'; params?: undefined };
+  | { stack: 'Mantenimiento'; params?: undefined }
+  | { stack: 'PorAprobar'; params?: undefined }
+  | { stack: 'Adelantos'; params?: undefined }
+  | { stack: 'Prestamos'; params?: undefined };
 
 /**
  * Pestaña a abrir al tocar un push, según `data.category` (lo manda
@@ -35,6 +38,17 @@ export function destinoParaAviso(data: unknown): DestinoAviso | null {
   // Vacaciones y permisos: solicitud del equipo por aprobar (jefe), decisión, recordatorios.
   // La sección del equipo vive dentro de "Mis Vacaciones".
   if (d?.category === 'vacaciones') return { stack: 'Vacaciones' };
+  // «Quién aprueba qué»: algo por aprobar → bandeja; resultado → adelantos o préstamos del colaborador.
+  if (d?.category === 'aprobacion_pendiente') return { stack: 'PorAprobar' };
+  if (d?.category === 'aprobacion_resultado') {
+    const tipo = (d as { tipo?: unknown }).tipo;
+    const url = typeof d.url === 'string' ? d.url : '';
+    if (tipo === 'adelanto' || url.includes('/mi-portal/adelantos')) return { stack: 'Adelantos' };
+    if (tipo === 'prestamo' || url.includes('/mi-portal/prestamos')) return { stack: 'Prestamos' };
+    return { stack: 'PorAprobar' };
+  }
+  // Préstamo aprobado (firmar), desembolsado o pagado.
+  if (typeof d?.category === 'string' && d.category.startsWith('prestamo_')) return { stack: 'Prestamos' };
   // Mantenimiento: solicitud nueva, asignación, resuelta (¿quedó bien?) o reabierta.
   if (d?.category === 'mantenimiento') return { stack: 'Mantenimiento' };
   // Comunicados, eventos y avisos de asistencia (marcar salida, excepciones): Inicio.

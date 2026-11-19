@@ -157,6 +157,12 @@ export default function PrestamosScreen() {
                 <Text style={styles.meta}>
                   {term} {PERIOD_LABELS[period]?.toLowerCase() ?? period} · solicitado {fmtDate(r.created_at)}
                 </Text>
+                {r.ruta?.estado === 'pendiente' && r.ruta.en_manos_de.length > 0 ? (
+                  <Text style={styles.meta}>
+                    La tiene {r.ruta.en_manos_de.join(', ')}
+                    {r.ruta.total > 1 ? ` (paso ${r.ruta.paso} de ${r.ruta.total})` : ''}
+                  </Text>
+                ) : null}
                 {r.status === 'counter_offered' && (
                   <Text style={styles.counterHint}>
                     <Ionicons name="swap-horizontal-outline" size={12} color="#1E40AF" /> RRHH propuso nuevos
