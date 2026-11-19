@@ -15,7 +15,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../lib/theme';
-import { decidir, fmtC, misPorAprobar, type FilaSolicitud } from '../lib/aprobaciones';
+import { contarChecklistsPorRevisar, decidir, fmtC, misPorAprobar, type FilaSolicitud } from '../lib/aprobaciones';
+import { useNavigation } from '@react-navigation/native';
+import type { RootStackNavigation } from '../types/navigation';
 import RecorridoSolicitud from '../components/RecorridoSolicitud';
 
 const POR_PERIODO: Record<string, number> = { weekly: 52 / 12, biweekly: 2, monthly: 1 };
@@ -27,7 +29,16 @@ function Datos({ f }: { f: FilaSolicitud }) {
   const lineas: { k: string; v: string; alerta?: boolean }[] = [];
   const dia = (x: unknown) =>
     x ? new Date(`${String(x)}T12:00:00`).toLocaleDateString('es-NI', { weekday: 'short', day: 'numeric', month: 'short' }) : '—';
-  if (f.tipo === 'cambio_laboral') {
+  if (f.tipo === 'cambio_turno') {
+    if (d.clase === 'abierto') {
+      lineas.push({ k: 'Turno abierto', v: `${dia(d.fecha)} · ${d.turno ?? '—'}` });
+      if (d.sucursal) lineas.push({ k: 'Dónde', v: String(d.sucursal) });
+    } else {
+      lineas.push({ k: 'Cede', v: `${dia(d.fecha)} · ${d.turno ?? '—'}` });
+      lineas.push({ k: 'Con', v: String(d.companero ?? '—') });
+      if (d.fecha_companero) lineas.push({ k: 'Toma', v: `${dia(d.fecha_companero)} · ${d.turno_companero ?? '—'}` });
+    }
+  } else if (f.tipo === 'cambio_laboral') {
     const antes = Number(d.salario_antes ?? 0);
     const nuevo = Number(d.salario_nuevo ?? 0);
     const pct = antes > 0 ? ((nuevo - antes) / antes) * 100 : null;
@@ -97,6 +108,7 @@ function Tarjeta({ f, onDecidir }: { f: FilaSolicitud; onDecidir: (d: 'aprobado'
               : f.tipo === 'permiso' ? 'calendar-outline'
               : f.tipo === 'finiquito' ? 'document-text-outline'
               : f.tipo === 'cambio_laboral' ? 'trending-up-outline'
+              : f.tipo === 'cambio_turno' ? 'swap-horizontal-outline'
               : 'time-outline'
             }
             size={20}
@@ -152,8 +164,11 @@ export default function PorAprobarScreen() {
   const [comentario, setComentario] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [errorHoja, setErrorHoja] = useState<string | null>(null);
+  const [checklists, setChecklists] = useState(0);
+  const navigation = useNavigation<RootStackNavigation>();
 
   const cargar = useCallback(async () => {
+    void contarChecklistsPorRevisar().then(setChecklists);
     const r = await misPorAprobar();
     if (r) {
       setFilas(r);
@@ -217,11 +232,19 @@ export default function PorAprobarScreen() {
           </View>
         ) : null}
         {error ? <Text style={s.error}>{error}</Text> : null}
+        {checklists > 0 ? (
+          <TouchableOpacity style={s.card} onPress={() => navigation.navigate('ChecklistsEquipo')}>
+            <Text style={s.nombre}>
+              {checklists === 1 ? '1 checklist por revisar' : `${checklists} checklists por revisar`}
+            </Text>
+            <Text style={s.meta}>Los revisa el responsable de cada negocio. Toca para abrirlos.</Text>
+          </TouchableOpacity>
+        ) : null}
         {cargando ? (
           <View style={s.center}>
             <ActivityIndicator color={theme.primary} />
           </View>
-        ) : filas.length === 0 ? (
+        ) : filas.length === 0 && checklists === 0 ? (
           <View style={s.empty}>
             <Ionicons name="file-tray-outline" size={40} color={theme.textMuted} />
             <Text style={s.emptyText}>No tienes nada por aprobar</Text>

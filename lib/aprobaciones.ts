@@ -39,7 +39,7 @@ export type Adelanto = {
 
 export type FilaSolicitud = {
   id: string;
-  tipo: 'adelanto' | 'prestamo' | 'vacaciones' | 'permiso' | 'horas_extra' | 'finiquito' | 'cambio_laboral';
+  tipo: 'adelanto' | 'prestamo' | 'vacaciones' | 'permiso' | 'horas_extra' | 'finiquito' | 'cambio_laboral' | 'cambio_turno';
   escalada?: boolean;
   ref_tabla: string;
   ref_id: string;
@@ -118,6 +118,12 @@ export async function misPorAprobar(): Promise<FilaSolicitud[] | null> {
   return error ? null : ((data as FilaSolicitud[] | null) ?? []);
 }
 
+/** Checklists que me toca revisar (los decide el responsable del negocio, no la ruta). */
+export async function contarChecklistsPorRevisar(): Promise<number> {
+  const { data } = await supabase.rpc('checklist_por_revisar');
+  return Array.isArray(data) ? data.length : 0;
+}
+
 export async function contarPorAprobar(): Promise<number> {
   const { data } = await supabase.rpc('contar_mis_aprobaciones');
   return typeof data === 'number' ? data : 0;
@@ -157,6 +163,15 @@ export async function decidir(
   decision: 'aprobado' | 'rechazado',
   comentario: string,
 ): Promise<Resultado> {
+  if (s.tipo === 'cambio_turno') {
+    // Revisa que los turnos no cambiaron; al cerrarse la ruta aplica y publica el horario.
+    const { error } = await supabase.rpc(s.ref_tabla === 'open_shifts' ? 'resolve_open_shift' : 'resolve_shift_swap', {
+      p_id: s.ref_id,
+      p_approve: decision === 'aprobado',
+      p_note: comentario.trim() || null,
+    });
+    return error ? { ok: false, error: error.message } : { ok: true };
+  }
   if (s.tipo === 'cambio_laboral') {
     // Valida que el cargo/salario no cambió y mantiene al día los pasos del módulo.
     const { data, error } = await supabase.rpc('decidir_cambio_laboral', {
