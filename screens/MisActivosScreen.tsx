@@ -27,7 +27,7 @@ type AssetRow = {
 };
 
 function formatDate(iso: string): string {
-  const d = new Date(iso);
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('es-NI', { day: '2-digit', month: 'long', year: 'numeric' });
 }
