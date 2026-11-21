@@ -153,20 +153,29 @@ export default function VacacionesScreen() {
       .order('start_date', { ascending: false })
       .limit(15);
     setSolicitudes((sol ?? []) as Solicitud[]);
+    // Vista de directorio: el jefe ve nombre de su equipo, no la ficha completa.
     const { data: aCargo } = await supabase
-      .from('employees')
-      .select('id')
+      .from('employee_directory_public')
+      .select('id, first_name, last_name')
       .or(`reports_to.eq.${empId},manager_id.eq.${empId}`)
       .is('deleted_at', null);
-    const ids = ((aCargo ?? []) as { id: string }[]).map((e) => e.id).filter((id) => id !== empId);
+    const equipoRows = ((aCargo ?? []) as { id: string; first_name: string | null; last_name: string | null }[]).filter(
+      (e) => e.id !== empId
+    );
+    const ids = equipoRows.map((e) => e.id);
     if (ids.length > 0) {
+      const nombres = new Map(equipoRows.map((e) => [e.id, { first_name: e.first_name, last_name: e.last_name }]));
       const { data: pend } = await supabase
         .from('time_off_requests')
-        .select('id, employee_id, request_type, start_date, end_date, hora_inicio, hora_fin, status, notes, employees(first_name, last_name)')
+        .select('id, employee_id, request_type, start_date, end_date, hora_inicio, hora_fin, status, notes')
         .in('employee_id', ids)
         .eq('status', 'pendiente')
         .order('start_date', { ascending: true });
-      setEquipo((pend ?? []) as PendienteEquipo[]);
+      setEquipo(
+        ((pend ?? []) as { employee_id: string }[]).map(
+          (r) => ({ ...r, employees: nombres.get(r.employee_id) ?? null }) as unknown as PendienteEquipo
+        )
+      );
     } else {
       setEquipo([]);
     }
