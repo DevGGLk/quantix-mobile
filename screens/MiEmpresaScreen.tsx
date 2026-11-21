@@ -109,8 +109,9 @@ async function fetchEmployeesWithResolvedJobTitles(
   companyId: string,
   branchId: string | null
 ): Promise<EmployeeRow[]> {
+  // Vista de directorio: solo columnas no sensibles (la tabla ya no expone a los compañeros).
   let empQuery = supabase
-    .from('employees')
+    .from('employee_directory_public')
     .select('id, first_name, last_name, avatar_path, avatar_updated_at, job_title_id, position_id, reports_to, manager_id')
     .eq('company_id', companyId)
     .eq('employment_status', 'active');

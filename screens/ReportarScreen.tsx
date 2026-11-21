@@ -94,7 +94,7 @@ export default function ReportarScreen() {
         }
 
         const { data: empRows, error: empErr } = await supabase
-          .from('employees')
+          .from('employee_directory_public')
           .select('id, user_id, first_name, last_name')
           .eq('company_id', companyId)
           .neq('user_id', viewerUserId);
