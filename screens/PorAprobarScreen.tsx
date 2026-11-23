@@ -11,11 +11,12 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../lib/theme';
-import { contarChecklistsPorRevisar, decidir, fmtC, misPorAprobar, registrarAcuerdo, saldoQuedaNegativo, type FilaSolicitud } from '../lib/aprobaciones';
+import { contarChecklistsPorRevisar, contarPorAprobar, decidir, fmtC, misPorAprobar, registrarAcuerdo, saldoQuedaNegativo, type FilaSolicitud } from '../lib/aprobaciones';
 import { useNavigation } from '@react-navigation/native';
 import type { RootStackNavigation } from '../types/navigation';
 import RecorridoSolicitud from '../components/RecorridoSolicitud';
@@ -158,6 +159,8 @@ function Tarjeta({ f, onDecidir }: { f: FilaSolicitud; onDecidir: (d: 'aprobado'
   );
 }
 
+const WEB_POR_APROBAR = `${process.env.EXPO_PUBLIC_QUANTIX_API_URL ?? 'https://app.quantixhr.com'}/mi-portal/por-aprobar`;
+
 export default function PorAprobarScreen() {
   const [filas, setFilas] = useState<FilaSolicitud[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -170,13 +173,17 @@ export default function PorAprobarScreen() {
   const [enviando, setEnviando] = useState(false);
   const [errorHoja, setErrorHoja] = useState<string | null>(null);
   const [checklists, setChecklists] = useState(0);
+  // Pendientes que solo se resuelven en la web (reclamos de marcaje, cambios de datos personales):
+  // el contador los suma, así que sin esta tarjeta el globo no cuadraba con la lista.
+  const [enWeb, setEnWeb] = useState(0);
   const navigation = useNavigation<RootStackNavigation>();
 
   const cargar = useCallback(async () => {
-    void contarChecklistsPorRevisar().then(setChecklists);
-    const r = await misPorAprobar();
+    const [r, nCheck, total] = await Promise.all([misPorAprobar(), contarChecklistsPorRevisar(), contarPorAprobar()]);
+    setChecklists(nCheck);
     if (r) {
       setFilas(r);
+      setEnWeb(Math.max(0, total - r.length - nCheck));
       setError(null);
     } else setError('No se pudieron cargar las solicitudes.');
     setCargando(false);
@@ -258,11 +265,21 @@ export default function PorAprobarScreen() {
             <Text style={s.meta}>Los revisa el responsable de cada negocio. Toca para abrirlos.</Text>
           </TouchableOpacity>
         ) : null}
+        {enWeb > 0 ? (
+          <TouchableOpacity style={s.card} onPress={() => void Linking.openURL(WEB_POR_APROBAR)}>
+            <Text style={s.nombre}>
+              {enWeb === 1 ? '1 pendiente para resolver en la web' : `${enWeb} pendientes para resolver en la web`}
+            </Text>
+            <Text style={s.meta}>
+              Reclamos de marcaje o cambios de datos personales. Toca para abrir «Por aprobar» en la web.
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         {cargando ? (
           <View style={s.center}>
             <ActivityIndicator color={theme.primary} />
           </View>
-        ) : filas.length === 0 && checklists === 0 ? (
+        ) : filas.length === 0 && checklists === 0 && enWeb === 0 ? (
           <View style={s.empty}>
             <Ionicons name="file-tray-outline" size={40} color={theme.textMuted} />
             <Text style={s.emptyText}>No tienes nada por aprobar</Text>
